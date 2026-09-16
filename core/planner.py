@@ -235,6 +235,8 @@ def technical_staffing_plan(
     df: pd.DataFrame,
     distribution: pd.DataFrame,
     rules: PlanningRules,
+    *,
+    demand_by_specialty: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """Calcula déficit y contratistas requeridos por especialidad técnica."""
     result = _clean_distribution(distribution)
@@ -249,7 +251,13 @@ def technical_staffing_plan(
     result["Fichas activas"] = result["Fichas nuevas"] + result["Fichas que pasan"]
     result["Fichas al cierre"] = result["Fichas activas"] - result["Fichas que terminan"]
     result["Demanda técnica (h/sem)"] = result["Fichas activas"] * rules.weekly_technical_hours
+    if demand_by_specialty is not None:
+        result["Demanda técnica (h/sem)"] = result["Especialidad"].map(demand_by_specialty).fillna(0.0)
     result["Capacidad planta (h/sem)"] = result["Instructores planta"] * rules.weekly_plant_direct_hours
+    result["Horas atendidas por planta (h/sem)"] = result[["Demanda técnica (h/sem)", "Capacidad planta (h/sem)"]].min(axis=1)
+    result["Instructores equivalentes requeridos"] = result["Demanda técnica (h/sem)"] / rules.weekly_plant_direct_hours
+    per_ficha = result["Demanda técnica (h/sem)"] / result["Fichas activas"].replace(0, float("nan"))
+    result["Capacidad equivalente planta (fichas)"] = (result["Capacidad planta (h/sem)"] / per_ficha.replace(0, float("nan"))).fillna(0)
     result["Déficit antes de contratar (h/sem)"] = (
         result["Demanda técnica (h/sem)"] - result["Capacidad planta (h/sem)"]
     ).clip(lower=0)
@@ -281,6 +289,9 @@ def technical_staffing_plan(
             "Instructores planta",
             "Demanda técnica (h/sem)",
             "Capacidad planta (h/sem)",
+            "Horas atendidas por planta (h/sem)",
+            "Capacidad equivalente planta (fichas)",
+            "Instructores equivalentes requeridos",
             "Déficit antes de contratar (h/sem)",
             "Horas disponibles planta (h/sem)",
             "Contratistas requeridos",
@@ -294,6 +305,8 @@ def transversal_staffing_plan(
     df: pd.DataFrame,
     active_fichas: int,
     rules: PlanningRules,
+    *,
+    demand_by_area: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """Calcula contratación requerida para Bilingüismo e Integralidad."""
     plant = df.loc[df["Es planta"]].copy()
@@ -302,6 +315,8 @@ def transversal_staffing_plan(
         "Bilingüismo": active_fichas * rules.weekly_bilingual_hours,
         "Integralidad": active_fichas * rules.weekly_integrality_hours,
     }
+    if demand_by_area is not None:
+        demand_hours = demand_by_area
 
     rows: list[dict[str, float | int | str]] = []
     for area in ["Bilingüismo", "Integralidad"]:

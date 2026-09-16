@@ -104,7 +104,7 @@ def execute_plan(
         "source_digest": source_digest,
         "target_learners": target_learners,
         "continuing_fichas": continuing_fichas,
-        "rules": asdict(rules),
+        "rules": {**asdict(rules), "intake_weights": list(rules.intake_weights)},
         "distribution": records(distribution),
         "distribution_basis": "automatic_growth_v1",
         "growth_rule": growth_requirements(distribution),
