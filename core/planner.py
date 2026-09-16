@@ -124,11 +124,6 @@ def plant_resource_summary(df: pd.DataFrame, rules: PlanningRules) -> pd.DataFra
 def technical_specialty_catalog(df: pd.DataFrame) -> pd.DataFrame:
     """Catálogo técnico detectado, incluyendo especialidades sin planta actual."""
     technical = df.loc[df["Área"] == "Técnica"].copy()
-    if technical.empty:
-        return pd.DataFrame(
-            columns=["Especialidad", "Instructores planta", "Contratistas actuales"]
-        )
-
     rows: list[dict[str, object]] = []
     for specialty, group in technical.groupby("Especialidad", sort=True):
         rows.append(
@@ -138,7 +133,12 @@ def technical_specialty_catalog(df: pd.DataFrame) -> pd.DataFrame:
                 "Contratistas actuales": int((~group["Es planta"]).sum()),
             }
         )
-    return pd.DataFrame(rows)
+    detected = {row["Especialidad"] for row in rows}
+    for specialty in df.attrs.get("specialties", []):
+        if specialty["Área"] == "Técnica" and specialty["Especialidad"] not in detected:
+            rows.append({"Especialidad": specialty["Especialidad"], "Instructores planta": 0, "Contratistas actuales": 0})
+            detected.add(specialty["Especialidad"])
+    return pd.DataFrame(rows, columns=["Especialidad", "Instructores planta", "Contratistas actuales"]).sort_values("Especialidad", ignore_index=True)
 
 
 def suggested_ficha_distribution(
