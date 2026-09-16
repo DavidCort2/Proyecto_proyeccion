@@ -13,12 +13,17 @@ import streamlit as st
 from core.config import PlanningRules
 from core.database import load_planning, save_planning
 from core.excel_parser import parse_instructors_excel
-from core.planner import fichas_from_target, suggested_ficha_distribution
-from core.workflow import DISTRIBUTION_COLUMNS, execute_plan, validate_distribution
+from core.planner import (
+    fichas_from_target, growth_requirements,
+    technical_specialty_catalog,
+)
+from core.workflow import MANUAL_COLUMNS, execute_plan, project_distribution
 from ui.results import render_results
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_EXCEL = BASE_DIR / "data" / "reporteInstructores_2026_4.xlsx"
+DEFAULT_EXCEL = BASE_DIR / "reporteInstructores_2026_4.xlsx"
+if not DEFAULT_EXCEL.exists():
+    DEFAULT_EXCEL = BASE_DIR / "data" / "reporteInstructores_2026_4.xlsx"
 DATABASE_PATH = BASE_DIR / "data" / "planeacion.sqlite3"
 
 
@@ -41,6 +46,9 @@ def main() -> None:
     instructors = None
     source_name = source_digest = ""
     draft_valid = False
+    continuing = 0
+    # La meta ingresada se conserva; la proyección puede superarla.
+    st.session_state.pop("suggested_target", None)
 
     with st.container(border=True):
         st.subheader("1. Preparar la planeación")
@@ -84,10 +92,9 @@ def main() -> None:
         else:
             st.info("Seleccione un archivo válido o el reporte incluido para preparar la distribución.")
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         year = c1.number_input("Vigencia a planear", min_value=2000, max_value=2200, value=previous.get("planning_year", date.today().year + 1), step=1, key="planning_year")
         target = c2.number_input("Meta de aprendices nuevos", min_value=0, value=previous.get("target_learners", 500), step=25, key="target_learners")
-        continuing = c3.number_input("Fichas que continúan el siguiente año", min_value=0, value=previous.get("continuing_fichas", 0), step=1, key="continuing_fichas")
         with st.expander("Parámetros de cálculo", expanded=True):
             c1, c2, c3 = st.columns(3)
             learners = c1.number_input("Aprendices por ficha", min_value=1, value=int(defaults["learners_per_ficha"]), key="learners_per_ficha")
@@ -101,34 +108,80 @@ def main() -> None:
         for error in errors:
             st.error(error)
         expected_new = fichas_from_target(int(target), int(learners))
-        st.markdown("**2. Distribuir las fichas por especialidad técnica**")
-        st.caption(f"Distribuya {expected_new} fichas nuevas y {continuing} que continúan. Total: {expected_new + continuing} fichas activas. Horas técnicas por ficha: {rules.weekly_technical_hours:g} h/semana.")
+        st.markdown("**2. Ingresar las fichas por especialidad técnica**")
+        st.caption(
+            "Ingrese manualmente las fichas que pasan en cada especialidad (0 si no hay). "
+            "Indique cuántas de esas fichas terminan durante la vigencia y se prevé reemplazar. "
+            "El total se suma automáticamente; estas cantidades nunca se reparten ni se cambian por una sugerencia."
+        )
+        st.caption(f"La meta actual equivale a {expected_new} fichas nuevas. Horas técnicas por ficha: {rules.weekly_technical_hours:g} h/semana.")
         if instructors is not None:
             if st.session_state.get("distribution_source") != source_digest:
                 st.session_state.distribution_source = source_digest
                 if source_digest == previous.get("source_digest"):
-                    base = pd.DataFrame(previous["distribution"], columns=DISTRIBUTION_COLUMNS)
+                    base = pd.DataFrame(previous["distribution"])
+                    if "Fichas que terminan" not in base:
+                        base["Fichas que terminan"] = 0
+                    base = base.reindex(columns=MANUAL_COLUMNS)
                 else:
-                    base = suggested_ficha_distribution(instructors, expected_new, int(continuing))
+                    catalog = technical_specialty_catalog(instructors)
+                    base = pd.DataFrame({
+                        "Especialidad": catalog["Especialidad"],
+                        "Fichas que pasan": pd.Series(pd.NA, index=catalog.index, dtype="Int64"),
+                        "Fichas que terminan": 0,
+                    })
                 st.session_state.distribution_base = base
                 st.session_state.editor_revision = st.session_state.get("editor_revision", 0) + 1
-            if st.button("Generar distribución proporcional", help="Reemplaza las ediciones de la tabla con una propuesta según la planta técnica disponible."):
-                st.session_state.distribution_base = suggested_ficha_distribution(instructors, expected_new, int(continuing))
+            if list(st.session_state.distribution_base.columns) != MANUAL_COLUMNS:
+                if "Fichas que terminan" not in st.session_state.distribution_base:
+                    st.session_state.distribution_base["Fichas que terminan"] = 0
+                st.session_state.distribution_base = st.session_state.distribution_base.reindex(columns=MANUAL_COLUMNS)
                 st.session_state.editor_revision += 1
-            st.caption("Edite la propuesta según la oferta real. Puede agregar especialidades sin planta. Cambiar la meta conserva sus ediciones; el botón anterior genera una nueva propuesta.")
-            distribution = st.data_editor(
+            if source_digest == previous.get("source_digest") and previous.get("distribution_basis") != "automatic_growth_v1":
+                st.info("Esta planeación se guardó con el método anterior. Se conservan sus cantidades manuales; las nuevas se proyectan ahora con reposición y crecimiento mínimo del 5 %. Ejecute para guardar el nuevo cálculo.")
+            manual = st.data_editor(
                 st.session_state.distribution_base, use_container_width=True, hide_index=True, num_rows="dynamic",
                 column_config={
                     "Especialidad": st.column_config.TextColumn(required=True),
-                    "Fichas nuevas": st.column_config.NumberColumn(min_value=0, step=1, required=True),
-                    "Fichas que pasan": st.column_config.NumberColumn(min_value=0, step=1, required=True),
+                    "Fichas que pasan": st.column_config.NumberColumn("Fichas que pasan (manual)", min_value=0, step=1, required=True),
+                    "Fichas que terminan": st.column_config.NumberColumn("De esas, terminan en la vigencia", min_value=0, step=1, required=True, help="Solo cuente fichas incluidas en las que pasan. Sirven de referencia para las reposiciones."),
                 },
                 key=f"distribution_{source_digest}_{st.session_state.editor_revision}",
             )
             try:
-                distribution = validate_distribution(distribution, instructors, expected_new, int(continuing))
+                distribution = project_distribution(manual, instructors, int(target), int(learners))
+                continuing = int(distribution["Fichas que pasan"].sum())
+                projected_new = int(distribution["Fichas nuevas"].sum())
+                rule = growth_requirements(distribution)
+                st.markdown("**Proyección automática de fichas nuevas**")
+                st.write(
+                    f"Fichas según la meta: **{expected_new}** · Reposiciones: **{rule['replacement_fichas']}** · "
+                    f"Crecimiento mínimo: **{rule['growth_fichas']}** · Nuevas proyectadas: **{projected_new}**."
+                )
+                projection = pd.DataFrame(rule["rows"], columns=[
+                    "Especialidad", "Fichas que pasan", "Fichas que terminan",
+                    "Crecimiento mínimo (5 %)", "Mínimo de fichas nuevas",
+                ])
+                projection["Adicionales para completar la meta"] = distribution["Fichas nuevas"] - projection["Mínimo de fichas nuevas"]
+                projection["Fichas nuevas"] = distribution["Fichas nuevas"]
+                projection["Fichas al cierre"] = distribution["Fichas que pasan"] - distribution["Fichas que terminan"] + distribution["Fichas nuevas"]
+                st.dataframe(projection, hide_index=True, use_container_width=True)
+                st.caption(
+                    "Cada especialidad recibe sus reposiciones + el 5 % de las fichas que pasan, redondeado hacia arriba. "
+                    "Las fichas restantes de la meta se reparten proporcionalmente a las que pasan. "
+                    "La proyección se actualiza al cambiar cualquier dato, sin modificar las cantidades manuales."
+                )
+                if projected_new > expected_new:
+                    st.warning(
+                        f"La regla requiere {projected_new - expected_new} fichas adicionales sobre la meta. "
+                        f"Se proyectan {projected_new} fichas nuevas, equivalentes a {projected_new * int(learners)} "
+                        f"cupos, frente a la meta ingresada de {int(target)} aprendices. Puede ejecutar y guardar esta proyección."
+                    )
+                if continuing == 0 and expected_new > 0:
+                    st.info("Todas las continuaciones son cero: la meta se reparte equitativamente entre las especialidades registradas.")
                 draft_valid = not errors
-                st.success("La distribución coincide con los totales de la planeación.")
+                if draft_valid:
+                    st.success("Proyección lista para ejecutar: reposiciones y crecimiento del 5 % cubiertos.")
             except ValueError as exc:
                 st.warning(str(exc))
 
@@ -138,7 +191,7 @@ def main() -> None:
         if execute:
             try:
                 with st.spinner("Calculando y guardando en SQLite…"):
-                    execution = execute_plan(instructors, distribution, rules, int(target), int(continuing), int(year), source_name, source_digest)
+                    execution = execute_plan(instructors, distribution, rules, int(target), int(year), source_name, source_digest)
                     save_planning(DATABASE_PATH, instructors, execution)
                     saved = load_planning(DATABASE_PATH)
                 st.success("Planeación ejecutada y guardada. La base de datos contiene únicamente esta carga y su última ejecución.")
@@ -153,6 +206,7 @@ def main() -> None:
             or source_name != current["source_name"] or int(year) != current["planning_year"]
             or int(target) != current["target_learners"] or int(continuing) != current["continuing_fichas"]
             or asdict(rules) != current["rules"]
+            or current.get("distribution_basis") != "automatic_growth_v1"
         )
         if draft_valid:
             pending = pending or distribution.to_dict("records") != current["distribution"]

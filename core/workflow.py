@@ -11,23 +11,32 @@ from core.config import PlanningRules
 from core.excel_parser import classify_area, normalize_text
 from core.planner import (
     calculate_center_plan,
+    fichas_from_target,
+    growth_requirements,
+    suggested_ficha_distribution,
     plant_resource_summary,
     staffing_summary,
     technical_staffing_plan,
     transversal_staffing_plan,
 )
 
-DISTRIBUTION_COLUMNS = ["Especialidad", "Fichas nuevas", "Fichas que pasan"]
+DISTRIBUTION_COLUMNS = ["Especialidad", "Fichas que pasan", "Fichas que terminan", "Fichas nuevas"]
+MANUAL_COLUMNS = DISTRIBUTION_COLUMNS[:-1]
 
 
 def validate_distribution(
     distribution: pd.DataFrame, instructors: pd.DataFrame,
-    expected_new: int, expected_continuing: int,
+    expected_new: int | None = None, expected_continuing: int | None = None,
 ) -> pd.DataFrame:
-    if not set(DISTRIBUTION_COLUMNS).issubset(distribution.columns):
+    if not {"Especialidad", "Fichas nuevas", "Fichas que pasan"}.issubset(distribution.columns):
         raise ValueError("La distribución debe incluir especialidad, fichas nuevas y fichas que pasan.")
+    # Las ejecuciones anteriores no registraban cuántas continuaciones terminaban.
+    distribution = distribution.copy()
+    if "Fichas que terminan" not in distribution:
+        distribution["Fichas que terminan"] = 0
     result = distribution[DISTRIBUTION_COLUMNS].copy()
     names = {normalize_text(name): name for name in instructors["Especialidad"]}
+    names.update({normalize_text(row["Especialidad"]): row["Especialidad"] for row in instructors.attrs.get("specialties", [])})
     result["Especialidad"] = result["Especialidad"].fillna("").astype(str).str.strip()
     if result["Especialidad"].eq("").any():
         raise ValueError("Todas las filas de la distribución deben tener una especialidad.")
@@ -41,11 +50,15 @@ def validate_distribution(
         if values.isna().any() or not values.map(math.isfinite).all() or (values < 0).any() or (values % 1 != 0).any():
             raise ValueError(f"{column}: ingrese números enteros mayores o iguales a cero en todas las filas.")
         result[column] = values.astype(int)
-    if result["Fichas nuevas"].sum() != expected_new or result["Fichas que pasan"].sum() != expected_continuing:
+    if (result["Fichas que terminan"] > result["Fichas que pasan"]).any():
+        raise ValueError("Las fichas que terminan no pueden superar las fichas que pasan de su especialidad.")
+    if expected_new is not None and result["Fichas nuevas"].sum() != expected_new:
         raise ValueError(
-            f"La distribución debe sumar {expected_new} fichas nuevas y "
-            f"{expected_continuing} fichas que pasan. Ajuste la tabla o genere una nueva propuesta."
+            f"La distribución debe sumar {expected_new} fichas nuevas. "
+            "Ajuste las fichas nuevas de la tabla o genere una nueva propuesta."
         )
+    if expected_continuing is not None and result["Fichas que pasan"].sum() != expected_continuing:
+        raise ValueError(f"Las fichas que pasan deben sumar {expected_continuing}.")
     return result.reset_index(drop=True)
 
 
@@ -53,9 +66,19 @@ def records(frame: pd.DataFrame) -> list[dict]:
     return json.loads(frame.to_json(orient="records", force_ascii=False))
 
 
+def project_distribution(
+    manual: pd.DataFrame, instructors: pd.DataFrame, target_learners: int,
+    learners_per_ficha: int,
+) -> pd.DataFrame:
+    """La misma proyección se usa en la vista previa y al ejecutar; no confía en nuevas previas."""
+    validated = validate_distribution(manual.assign(**{"Fichas nuevas": 0}), instructors)
+    target_fichas = fichas_from_target(target_learners, learners_per_ficha)
+    return suggested_ficha_distribution(validated, target_fichas)[DISTRIBUTION_COLUMNS]
+
+
 def execute_plan(
     instructors: pd.DataFrame, distribution: pd.DataFrame, rules: PlanningRules,
-    target_learners: int, continuing_fichas: int, planning_year: int,
+    target_learners: int, planning_year: int,
     source_name: str, source_digest: str,
 ) -> dict:
     errors = rules.validate()
@@ -65,8 +88,14 @@ def execute_plan(
         raise ValueError("Cargue un reporte con instructores antes de ejecutar.")
     if not 2000 <= planning_year <= 2200:
         raise ValueError("La vigencia debe estar entre 2000 y 2200.")
-    center = calculate_center_plan(target_learners, continuing_fichas, int(instructors["Es planta"].sum()), rules)
-    distribution = validate_distribution(distribution, instructors, center["fichas_nuevas"], continuing_fichas)
+    distribution = project_distribution(distribution, instructors, target_learners, rules.learners_per_ficha)
+    continuing_fichas = int(distribution["Fichas que pasan"].sum())
+    center = calculate_center_plan(
+        target_learners, continuing_fichas, int(instructors["Es planta"].sum()), rules,
+        projected_new_fichas=int(distribution["Fichas nuevas"].sum()),
+    )
+    center["fichas_que_terminan"] = int(distribution["Fichas que terminan"].sum())
+    center["fichas_al_cierre"] = center["fichas_activas"] - center["fichas_que_terminan"]
     technical = technical_staffing_plan(instructors, distribution, rules)
     transversal = transversal_staffing_plan(instructors, center["fichas_activas"], rules)
     return {
@@ -77,6 +106,8 @@ def execute_plan(
         "continuing_fichas": continuing_fichas,
         "rules": asdict(rules),
         "distribution": records(distribution),
+        "distribution_basis": "automatic_growth_v1",
+        "growth_rule": growth_requirements(distribution),
         "center": center,
         "technical": records(technical),
         "transversal": records(transversal),

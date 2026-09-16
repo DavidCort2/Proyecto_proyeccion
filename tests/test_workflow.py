@@ -9,20 +9,29 @@ from core.config import PlanningRules
 from core.database import load_planning, save_planning
 from core.excel_parser import parse_instructors_excel
 from core.export import export_planning
-from core.planner import suggested_ficha_distribution
+from core.planner import suggested_ficha_distribution, technical_specialty_catalog
 from core.workflow import execute_plan, validate_distribution
 
 
 @pytest.fixture
-def instructors():
-    return parse_instructors_excel(Path(__file__).resolve().parents[1] / "data/reporteInstructores_2026_4.xlsx")
+def instructors(report_path):
+    return parse_instructors_excel(report_path)
 
 
 def execution_for(instructors, name="reporte.xlsx"):
     return execute_plan(
-        instructors, suggested_ficha_distribution(instructors, 20, 2),
-        PlanningRules(), 500, 2, 2027, name, name,
+        instructors, manual_distribution(instructors),
+        PlanningRules(), 500, 2027, name, name,
     )
+
+
+def manual_distribution(instructors):
+    frame = technical_specialty_catalog(instructors)[["Especialidad"]].copy()
+    frame["Fichas que pasan"] = 0
+    frame["Fichas que terminan"] = 0
+    frame["Fichas nuevas"] = 0
+    frame.loc[0, "Fichas que pasan"] = 2
+    return suggested_ficha_distribution(frame, 20)
 
 
 def test_save_load_preserves_names_rules_and_results(tmp_path, instructors):
@@ -88,7 +97,7 @@ def test_invalid_specialty_is_rejected(instructors, specialty):
 
 
 def test_distribution_totals_and_duplicate_specialties_are_rejected(instructors):
-    distribution = suggested_ficha_distribution(instructors, 20, 2)
+    distribution = manual_distribution(instructors)
     with pytest.raises(ValueError, match="sumar"):
         validate_distribution(distribution, instructors, 21, 2)
     with pytest.raises(ValueError, match="repetidas"):
@@ -97,7 +106,7 @@ def test_distribution_totals_and_duplicate_specialties_are_rejected(instructors)
 
 def test_manual_specialties_and_export_survive_restart(tmp_path, instructors):
     distribution = pd.DataFrame([{"Especialidad": "NUEVA", "Fichas nuevas": 20, "Fichas que pasan": 2}])
-    execution = execute_plan(instructors, distribution, PlanningRules(), 500, 2, 2027, "reporte.xlsx", "abc")
+    execution = execute_plan(instructors, distribution, PlanningRules(), 500, 2027, "reporte.xlsx", "abc")
     db = tmp_path / "planning.sqlite3"
     save_planning(db, instructors, execution)
     loaded, saved = load_planning(db)
@@ -112,5 +121,6 @@ def test_manual_specialties_and_export_survive_restart(tmp_path, instructors):
 def test_report_without_technical_instructors_supports_zero_target(instructors):
     transversal = instructors.loc[instructors["Área"] != "Técnica"].copy()
     transversal.attrs = {}
-    execution = execute_plan(transversal, suggested_ficha_distribution(transversal, 0, 0), PlanningRules(), 0, 0, 2027, "transversal.xlsx", "abc")
+    distribution = pd.DataFrame(columns=["Especialidad", "Fichas nuevas", "Fichas que pasan"])
+    execution = execute_plan(transversal, distribution, PlanningRules(), 0, 2027, "transversal.xlsx", "abc")
     assert execution["summary"]["contratistas_totales"] == 0

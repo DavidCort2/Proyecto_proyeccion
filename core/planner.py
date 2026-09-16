@@ -21,12 +21,17 @@ def calculate_center_plan(
     continuing_fichas: int,
     plant_instructors_scenario: int,
     rules: PlanningRules,
+    *,
+    projected_new_fichas: int | None = None,
 ) -> dict[str, float | int]:
     """Resumen general de la planeación antes de distribuir fichas por especialidad."""
     if continuing_fichas < 0 or plant_instructors_scenario < 0:
         raise ValueError("Las fichas que pasan y los instructores no pueden ser negativos.")
 
-    new_fichas = fichas_from_target(target_learners, rules.learners_per_ficha)
+    target_fichas = fichas_from_target(target_learners, rules.learners_per_ficha)
+    new_fichas = target_fichas if projected_new_fichas is None else projected_new_fichas
+    if new_fichas < target_fichas:
+        raise ValueError("La proyección no puede ser menor que las fichas de la meta.")
     active_fichas = new_fichas + continuing_fichas
     total_weekly_demand = active_fichas * rules.weekly_hours_per_ficha
     technical_demand = active_fichas * rules.weekly_technical_hours
@@ -36,6 +41,9 @@ def calculate_center_plan(
 
     return {
         "meta_aprendices": int(target_learners),
+        "fichas_segun_meta": int(target_fichas),
+        "fichas_adicionales_sobre_meta": int(new_fichas - target_fichas),
+        "aprendices_proyectados": int(new_fichas * rules.learners_per_ficha),
         "fichas_nuevas": int(new_fichas),
         "fichas_que_pasan": int(continuing_fichas),
         "fichas_activas": int(active_fichas),
@@ -142,32 +150,56 @@ def technical_specialty_catalog(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def suggested_ficha_distribution(
-    df: pd.DataFrame,
+    distribution: pd.DataFrame,
     new_fichas: int,
-    continuing_fichas: int,
 ) -> pd.DataFrame:
-    """
-    Sugiere por separado fichas nuevas y fichas que pasan.
-
-    La propuesta usa la cantidad de planta técnica como peso inicial. La tabla
-    resultante es editable porque la oferta real debe reemplazar esta sugerencia.
-    """
-    catalog = technical_specialty_catalog(df)
-    if catalog.empty:
-        return pd.DataFrame(columns=["Especialidad", "Fichas nuevas", "Fichas que pasan"])
-
-    labels = catalog["Especialidad"].tolist()
-    weights = catalog["Instructores planta"].tolist()
-    new_allocation = largest_remainder_allocation(new_fichas, labels, weights)
-    continuing_allocation = largest_remainder_allocation(continuing_fichas, labels, weights)
-
-    return pd.DataFrame(
-        {
-            "Especialidad": labels,
-            "Fichas nuevas": [new_allocation[label] for label in labels],
-            "Fichas que pasan": [continuing_allocation[label] for label in labels],
-        }
+    """Cubre reposiciones y 5 % por especialidad, y distribuye el saldo de la meta."""
+    if new_fichas < 0 or int(new_fichas) != new_fichas:
+        raise ValueError("Las fichas de la meta deben ser un entero no negativo.")
+    rule = growth_requirements(distribution)
+    result = distribution.copy()
+    if "Fichas que terminan" not in result:
+        result["Fichas que terminan"] = 0
+    if result.empty and new_fichas:
+        raise ValueError("Agregue al menos una especialidad para distribuir las fichas de la meta.")
+    weights = result["Fichas que pasan"].astype(int)
+    labels = result["Especialidad"].tolist()
+    remaining = max(0, int(new_fichas) - rule["new_fichas"])
+    # Si todas las bases son cero se reparte equitativamente entre las filas.
+    additional = largest_remainder_allocation(remaining, labels, weights)
+    result["Fichas nuevas"] = pd.Series(
+        [row["Mínimo de fichas nuevas"] + additional[row["Especialidad"]] for row in rule["rows"]],
+        index=result.index, dtype="int64",
     )
+    return result
+
+
+def growth_requirements(distribution: pd.DataFrame) -> dict:
+    """Mínimo obligatorio: terminaciones + techo del 5 % de cada especialidad."""
+    result = distribution.copy()
+    if "Fichas que terminan" not in result:
+        result["Fichas que terminan"] = 0
+    weights = pd.to_numeric(result["Fichas que pasan"], errors="coerce")
+    if weights.isna().any() or not weights.map(math.isfinite).all() or (weights < 0).any() or (weights % 1 != 0).any():
+        raise ValueError("Ingrese las fichas que pasan como enteros no negativos por especialidad.")
+    ending = pd.to_numeric(result["Fichas que terminan"], errors="coerce")
+    if ending.isna().any() or (ending < 0).any() or (ending % 1 != 0).any() or (ending > weights).any():
+        raise ValueError("Las fichas que terminan deben ser enteros entre cero y las fichas que pasan de cada especialidad.")
+    if result["Especialidad"].duplicated().any():
+        raise ValueError("Use una sola fila por especialidad.")
+    table = result[["Especialidad"]].copy()
+    table["Fichas que pasan"] = weights.astype(int)
+    table["Fichas que terminan"] = ending.astype(int)
+    # (n + 19) // 20 equivale a CEIL(n * 5 / 100), sin error de coma flotante.
+    table["Crecimiento mínimo (5 %)"] = (weights.astype(int) + 19) // 20
+    table["Mínimo de fichas nuevas"] = table["Fichas que terminan"] + table["Crecimiento mínimo (5 %)"]
+    return {
+        "percent": 5, "basis": "mandatory_replacements_and_growth", "rounding": "ceil_per_specialty",
+        "new_fichas": int(table["Mínimo de fichas nuevas"].sum()),
+        "replacement_fichas": int(ending.sum()),
+        "growth_fichas": int(table["Crecimiento mínimo (5 %)"].sum()),
+        "rows": table.to_dict("records"),
+    }
 
 
 def _clean_distribution(distribution: pd.DataFrame) -> pd.DataFrame:
@@ -177,9 +209,11 @@ def _clean_distribution(distribution: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Faltan columnas en la distribución: {', '.join(sorted(missing))}")
 
     result = distribution.copy()
+    if "Fichas que terminan" not in result:
+        result["Fichas que terminan"] = 0
     result["Especialidad"] = result["Especialidad"].fillna("").astype(str).str.strip()
     result = result.loc[result["Especialidad"] != ""].copy()
-    for column in ["Fichas nuevas", "Fichas que pasan"]:
+    for column in ["Fichas nuevas", "Fichas que pasan", "Fichas que terminan"]:
         result[column] = (
             pd.to_numeric(result[column], errors="coerce")
             .fillna(0)
@@ -190,7 +224,7 @@ def _clean_distribution(distribution: pd.DataFrame) -> pd.DataFrame:
 
     # Si el usuario agrega dos veces la misma especialidad, se consolidan sus fichas.
     result = (
-        result.groupby("Especialidad", as_index=False)[["Fichas nuevas", "Fichas que pasan"]]
+        result.groupby("Especialidad", as_index=False)[["Fichas nuevas", "Fichas que pasan", "Fichas que terminan"]]
         .sum()
         .sort_values("Especialidad", ignore_index=True)
     )
@@ -213,6 +247,7 @@ def technical_staffing_plan(
 
     result["Instructores planta"] = result["Especialidad"].map(plant_lookup).fillna(0).astype(int)
     result["Fichas activas"] = result["Fichas nuevas"] + result["Fichas que pasan"]
+    result["Fichas al cierre"] = result["Fichas activas"] - result["Fichas que terminan"]
     result["Demanda técnica (h/sem)"] = result["Fichas activas"] * rules.weekly_technical_hours
     result["Capacidad planta (h/sem)"] = result["Instructores planta"] * rules.weekly_plant_direct_hours
     result["Déficit antes de contratar (h/sem)"] = (
@@ -240,6 +275,8 @@ def technical_staffing_plan(
             "Especialidad",
             "Fichas nuevas",
             "Fichas que pasan",
+            "Fichas que terminan",
+            "Fichas al cierre",
             "Fichas activas",
             "Instructores planta",
             "Demanda técnica (h/sem)",
