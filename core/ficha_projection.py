@@ -35,6 +35,7 @@ def project_ficha_carryover(
     schedule_overrides: dict[str, int] | None = None,
     *,
     group_by_profile: bool = False,
+    curriculum_durations: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """El trimestre reportado está en curso; la ficha termina al final de su último trimestre."""
     if not 1 <= report_quarter <= 4:
@@ -54,7 +55,10 @@ def project_ficha_carryover(
     report_period = report_year * 4 + report_quarter - 1
     for row in detail.to_dict("records"):
         try:
-            duration = duration_in_quarters(row["Nivel"], row["Jornada"], schedule_overrides)
+            from core.curriculum import curriculum_key
+            duration = (curriculum_durations or {}).get(curriculum_key(row["Especialidad"], row["Jornada"])) if curriculum_durations is not None else None
+            if duration is None:
+                duration = duration_in_quarters(row["Nivel"], row["Jornada"], schedule_overrides)
             current = float(row["Trimestre actual"])
             if not math.isfinite(current) or current < 1 or current % 1:
                 raise ValueError("El trimestre actual debe ser un entero positivo.")

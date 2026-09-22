@@ -8,6 +8,11 @@ import pandas as pd
 from .config import PlanningRules
 
 
+def contractors_for_hours(hours: float, capacity: float) -> int:
+    """Redondea cupos sin crear uno extra por residuos de suma decimal."""
+    return max(0, math.ceil(hours / capacity - 1e-10))
+
+
 def fichas_from_target(target_learners: int, learners_per_ficha: int) -> int:
     if target_learners < 0:
         raise ValueError("La meta de aprendices no puede ser negativa.")
@@ -265,9 +270,7 @@ def technical_staffing_plan(
         result["Capacidad planta (h/sem)"] - result["Demanda técnica (h/sem)"]
     ).clip(lower=0)
     result["Contratistas requeridos"] = result["Déficit antes de contratar (h/sem)"].apply(
-        lambda deficit: math.ceil(float(deficit) / rules.weekly_contractor_hours)
-        if deficit > 0
-        else 0
+        lambda deficit: contractors_for_hours(float(deficit), rules.weekly_contractor_hours)
     )
     result["Capacidad contrato proyectada (h/sem)"] = (
         result["Contratistas requeridos"] * rules.weekly_contractor_hours
@@ -324,7 +327,7 @@ def transversal_staffing_plan(
         plant_capacity = plant_heads * rules.weekly_plant_direct_hours
         demand = float(demand_hours[area])
         deficit = max(0.0, demand - plant_capacity)
-        contractors = math.ceil(deficit / rules.weekly_contractor_hours) if deficit > 0 else 0
+        contractors = contractors_for_hours(deficit, rules.weekly_contractor_hours)
         contract_capacity = contractors * rules.weekly_contractor_hours
         rows.append(
             {

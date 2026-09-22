@@ -146,8 +146,10 @@ def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year
 
 
 def execute_level_plan(instructors, manual, rules, targets, planning_year, source_name, source_digest,
-                       *, quarter_endings=None, ficha_import=None):
+                       *, quarter_endings=None, ficha_import=None, transversal_continuity=None,
+                       transversal_modules=None, continuing_transversal_hours=None, curriculum_catalog=None):
     from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
+    from core.transversal_capacity import apply_transversal_capacity
 
     manual = validate_profiles(manual, instructors)
     if manual.empty:
@@ -159,4 +161,12 @@ def execute_level_plan(instructors, manual, rules, targets, planning_year, sourc
     execution = _execute_unscheduled_plan(instructors, effective, rules, targets, planning_year, source_name, source_digest)
     distribution = pd.DataFrame(execution["distribution"])
     distribution["Fichas que terminan"] = manual["Fichas que terminan"]
-    return apply_calendar(execution, instructors, distribution, endings, rules)
+    execution = apply_calendar(execution, instructors, distribution, endings, rules, modules=transversal_modules,
+                               continuing_hours=continuing_transversal_hours, ficha_import=ficha_import,
+                               curriculum_catalog=curriculum_catalog)
+    if curriculum_catalog is not None:
+        # En el flujo curricular se proyecta la dotación completa después de
+        # planta. Los contratos del reporte no son capacidad para la vigencia.
+        execution["staffing_basis"] = "plant_only_curricula_v1"
+        return execution
+    return apply_transversal_capacity(execution, instructors, rules, transversal_continuity)

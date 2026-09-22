@@ -1,191 +1,136 @@
 # Sistema de Planeación Indicativa SENA
 
-Aplicación Python y Streamlit para planear la siguiente vigencia a partir de la meta de aprendices, las fichas que continúan y los instructores del centro. SQLite conserva la última carga y su planeación completa, incluso al cerrar la aplicación.
+Aplicación Python y Streamlit para calcular fichas, horas e instructores por trimestre a partir de las mallas de cada programa y jornada. SQLite conserva las mallas, la clasificación de competencias y la última planeación ejecutada.
 
 ## Iniciar
 
-Requiere Python 3.11 o superior. En Windows puede abrir `iniciar.bat`, o ejecutar:
+Requiere Python 3.11 o superior. En Windows, abrir `iniciar.bat` o ejecutar:
 
 ```powershell
 py -m pip install -r requirements.txt
 py -m streamlit run app.py
 ```
 
-SQLite está incluido con Python; no necesita instalar un servidor de base de datos.
+La base está en `data/planeacion.sqlite3`. No requiere servidor de base de datos.
 
-## Flujo de trabajo
+## Preparar y ejecutar
 
-Todos los campos están en el bloque **Preparar la planeación**, sin formularios repartidos en la barra lateral.
+1. En **Mallas y competencias**, cargar uno o varios archivos `PROGRAMA - JORNADA.xlsx`, revisar la vista previa y pulsar **Digitalizar y guardar mallas**. Diurna/Diurno y Mixta/Mixto se normalizan. O&P/P&O requiere su propia malla.
+2. Revisar **Todas las competencias**. Los títulos equivalentes comparten una única competencia. La carga selecciona automáticamente las transversales según el tipo del Excel; cuando falta, reconoce los títulos transversales conocidos. Se pueden corregir **Transversal** y el área Bilingüismo/Integralidad con los campos existentes. **Guardar clasificación de competencias** conserva esa corrección en futuras importaciones.
+3. En **Planeación**, cargar los reportes de instructores y fichas actuales, o recuperarlos de la ejecución guardada.
+4. Configurar vigencia, metas por nivel, aprendices por ficha, horas disponibles de instructores, semanas efectivas y porcentajes de oferta T1–T4. Los porcentajes deben sumar 100 %.
+5. Revisar la proyección y las mallas faltantes. No se transcriben continuaciones, terminaciones, módulos ni horas pendientes.
+6. Pulsar **Ejecutar y guardar planeación** y descargar el Excel. Si cambian las entradas, los resultados guardados se identifican como anteriores hasta volver a ejecutar.
 
-1. Seleccionar **Cargar un archivo Excel**, **Usar reporte incluido** o, si ya existe una ejecución, **Usar datos guardados**.
-2. Revisar las especialidades y los instructores detectados en la vista previa.
-3. Ingresar la vigencia (inicialmente el próximo año) y las dos metas de aprendices nuevos: **Técnico** y **Tecnólogo**. Cada meta se convierte en fichas por separado.
-4. Ajustar los parámetros de cálculo si corresponde.
-5. Seleccionar **Cargar reporte de fichas**, **Usar reporte de fichas incluido** o **Ingreso manual**. El Excel llena las fichas que pasan y las que terminan por especialidad, nivel y jornada; ambos campos siguen siendo editables. Use una fila por combinación. En ingreso manual, seleccione nivel y jornada y escriba 0 donde no haya continuaciones; las celdas vacías no se consideran cero.
-6. Revisar las **terminaciones por trimestre**, la **proyección automática** y las **horas anuales requeridas**, por nivel y componente. Al cambiar las metas o las fichas se recalculan reposiciones, crecimiento mínimo del 5 %, calendario y capacidad de planta. Puede agregar especialidades sin planta.
-7. Pulsar **Ejecutar y guardar planeación**. El botón se habilita con datos válidos, incluso si la proyección debe superar la meta para cumplir la regla.
-8. Consultar los resultados y descargar el Excel de la ejecución guardada.
+Los programas y niveles de la oferta se obtienen del reporte de fichas, incluidas sus combinaciones sin continuaciones. La malla por sí sola no identifica el nivel; para incorporar un programa a la oferta debe estar identificado con su nivel y jornada en el reporte.
 
-Seleccionar un archivo prepara una vista previa. **El reemplazo de la base de datos ocurre al ejecutar y guardar correctamente**: se borran las especialidades, instructores y resultados anteriores y se inserta la nueva carga en una sola transacción. Si el archivo, la distribución o la escritura fallan, se conserva la última planeación válida. No se mantiene un historial de cargas.
+## Formato de las mallas
 
-Los resultados y la descarga siempre corresponden a la última ejecución guardada. Si cambia un dato, aparece un aviso de cambios pendientes hasta volver a ejecutar. Al abrir una sesión nueva se recuperan los instructores, los parámetros, la distribución y los resultados desde SQLite, sin volver a cargar el archivo.
+Cada hoja `Trimestre N` representa un trimestre de formación. Deben existir todos desde el 1, sin saltos. Se permiten portadas sin tablas curriculares.
 
-La distribución se identifica por el contenido del archivo, por lo que dos reportes con el mismo nombre no comparten las ediciones. Cambiar la meta conserva las continuaciones y terminaciones manuales y actualiza automáticamente las nuevas. No hay botones intermedios ni se ingresan manualmente las fichas nuevas. El total que pasa se obtiene de la suma de las especialidades.
-
-## Importación de fichas actuales
-
-Se incluye `data/reporteFichas_2026_4.xlsx`, con 66 fichas. También puede cargar otro archivo con el mismo formato: primera hoja con encabezados **N°, Número Ficha, Tipo Formación, Jornada y Trimestre**, agrupada por títulos de especialidad.
-
-El sistema toma el año y trimestre calendario del encabezado (por ejemplo, `2026 - Trimestre 4`); ambos son revisables en pantalla. El campo **Trimestre** de cada ficha corresponde al trimestre que está cursando, no al trimestre calendario del reporte.
-
-| Formación y jornada | Duración |
+| Columna | Uso |
 | --- | --- |
-| Técnico regular, diurna o mixta | 3 trimestres |
-| Tecnólogo, Diurna / Diurna-mañana / Diurna-tarde | 7 trimestres |
-| Tecnólogo, Mixta | 9 trimestres |
-| O&P / P&O, diurna | 10 trimestres |
+| Competencia | Identidad compartida, ignorando tildes, mayúsculas, puntuación y espacios redundantes. Unifica equivalencias explícitas, abreviaturas y recortes comprobados, como Física/Ciencias naturales, Matemáticas y variantes de protección ambiental. No combina competencias técnicas por parecido. |
+| Resultado | Texto completo del resultado de aprendizaje. |
+| Horas semanales | Horas por ficha y semana del resultado en ese trimestre. Se admiten decimales y cero explícito. |
+| Tipo competencia | Clasificación automática inicial. Las correcciones manuales tienen prioridad. Si distintas mallas discrepan para una misma competencia, una marca transversal explícita prevalece en la propuesta automática. |
 
-La finalización estimada se calcula sumando `duración − trimestre cursado` al período calendario del reporte. La ficha termina al **final** de su último trimestre. Solo pasa si esa finalización cae en el año planeado o después. De las que pasan, se cuentan como terminaciones aquellas que finalizan durante ese año.
+Un resultado puede aparecer en varios trimestres y conservar sus horas en cada uno. Solo se deduplica el catálogo de competencias: no se eliminan resultados ni sus apariciones. Horas negativas, vacías, no numéricas o fórmulas sin valor calculado impiden importar el lote.
 
-Ejemplos para un reporte de 2026-T4 y una planeación de 2027:
+La importación es transaccional. Dos archivos distintos para el mismo programa/jornada en un lote se rechazan. Volver a importar reemplaza únicamente esa malla y conserva las clasificaciones y demás mallas. Repetir un archivo no duplica los datos.
 
-- Un Técnico en trimestre 3 termina en 2026-T4: no pasa.
-- Un Técnico en trimestre 2 termina en 2027-T1: pasa y termina durante 2027.
-- Un Tecnólogo diurno en trimestre 7 no pasa; en trimestre 6 sí pasa.
-- Un Tecnólogo mixto en trimestre 9 no pasa; en trimestre 8 sí pasa.
-- Un Tecnólogo mixto en trimestre 4 termina en 2028-T1: pasa a 2027, pero no termina en 2027.
+El catálogo existente se migra automáticamente sin volver a cargar los Excel: se unen las variantes, se conservan todos los resultados, horas y títulos originales, y se recalcula la clasificación automática. El esquema anterior no distinguía valores predeterminados de correcciones: sus marcas transversales positivas se conservan como manuales y los valores técnicos iniciales se revisan según el Excel. Desde esta versión también se conserva una corrección manual que desmarque una transversal.
 
-**O&P y P&O** se reconocen automáticamente, incluidas las variantes mañana y tarde. Se clasifican como **Diurna O&P**, con 30 horas semanales y 10 trimestres, conservando la diferencia de duración frente a Diurna regular. Esta regla prevalece sobre las selecciones antiguas de 7 o 9 trimestres. El archivo incluido produce **54 continuaciones y 37 terminaciones en 2027**. Las otras jornadas desconocidas siguen requiriendo clasificación explícita.
+## Cálculo de las horas
 
-El detalle por ficha muestra duración, finalización estimada y motivo de continuidad. Las especialidades se vinculan por nombre normalizado (espacios, mayúsculas y tildes), sin mezclar programas por parecido. Los programas del reporte sin planta se agregan a la tabla conservando nivel y jornada. Puede añadir manualmente especialidades ausentes del reporte, indicando esos campos. Para las jornadas especiales, la selección de 7 trimestres corresponde a Diurna (30 h/semana) y la de 9 a Mixta (26 h/semana).
-
-Las correcciones manuales se conservan al cambiar la meta o los parámetros de horas. Cambiar el archivo, su período, la vigencia a planear o la duración de jornadas especiales vuelve a calcular y reemplaza los totales iniciales. La pantalla avisa este comportamiento.
-
-Al ejecutar se guardan en SQLite el reporte normalizado, el cálculo original por ficha y la distribución final corregida. Al abrir otra sesión se recuperan sin necesitar el Excel original. La exportación añade **Origen fichas**, **Detalle fichas importadas** y **Continuaciones calculadas**, separadas de la distribución final. Una carga inválida no permite ejecutar ni reemplaza lo guardado.
-
-## Proyección automática: reposiciones y crecimiento mínimo del 5 %
-
-Las fichas que terminan son un subconjunto de las que pasan, por lo que no pueden superar esa cantidad en una especialidad. Se reemplazan en el trimestre siguiente a su terminación: las que terminan en T4 se reservan para T1 de la siguiente vigencia. Además, se proyecta un crecimiento mínimo del 5 % respecto a las fichas que pasan.
-
-El proceso siguiente se aplica **independientemente para Técnico y Tecnólogo**. Un excedente de Técnico no cubre la meta de Tecnólogo. El mínimo del 5 % se redondea una sola vez por especialidad y nivel, sumando sus jornadas; luego se distribuye entre jornadas según las continuaciones, garantizando las reposiciones de cada fila.
-
-Se calcula primero el mínimo de cada especialidad. Si la meta permite más nuevas, se reparte el saldo según las fichas que pasan, mediante mayores restos. Si la meta no alcanza, **se supera la meta para cubrir todos los mínimos**. Si todas las continuaciones son cero, el saldo se reparte equitativamente entre las especialidades registradas; la pantalla lo indica. Si no existe ninguna especialidad y la meta es positiva, se pide agregar una.
+La duración proviene del número de trimestres de la malla. Las continuaciones avanzan desde el trimestre de formación del reporte hasta el inicio de la vigencia. Una ficha termina al final de su último trimestre; las nuevas ingresan al principio del trimestre calendario.
 
 ```text
-Fichas según meta = CEIL(meta de aprendices / aprendices por ficha)
-Crecimiento mínimo por especialidad = CEIL(fichas que pasan × 5 %)
-Mínimo de nuevas por especialidad = terminaciones en T1–T3 + crecimiento mínimo
-Base de nuevas proyectadas = MAX(fichas según meta, suma de mínimos)
-Saldo a distribuir = MAX(fichas según meta − suma de mínimos, 0)
-Nuevas por especialidad = mínimo de nuevas + saldo asignado proporcionalmente
-Total de nuevas = base + reposiciones adicionales por rotación de nuevas técnicas
-Fichas al cierre = fichas que pasan + todas las nuevas − todas las terminaciones (incluidas nuevas)
+Edad en T1 = trimestre cursado + trimestres calendario hasta la vigencia
+Edad de una nueva en Tq = q − trimestre de ingreso + 1
+Horas trimestrales = SUMA(fichas de la cohorte × horas semanales del resultado
+                         × semanas efectivas del trimestre)
+Horas anuales = SUMA(horas de los cuatro trimestres calendario)
+Semanas efectivas del mes = semanas efectivas del trimestre / 3
+Horas mensuales de cada ficha = horas semanales de su trimestre de formación
+                               × semanas efectivas del mes
 ```
 
-Ejemplo de Tecnólogo: **20 fichas que pasan y 8 que terminan en T2** requieren como mínimo **9 nuevas** (8 reposiciones en T3 + 1 de crecimiento), para mantener 21 activas después de las reposiciones. Si la meta equivale a 2 nuevas, se proyectan 9 y se informa el excedente de 7. Las terminaciones de T4 se muestran como reposiciones pendientes para la siguiente vigencia. Las nuevas fichas técnicas también terminan: una apertura en T1 finaliza en T3 y se reemplaza en T4, aumentando las nuevas si el saldo programado no alcanza.
+Cada cohorte recibe únicamente los resultados de su edad y jornada. Las continuaciones no repiten trimestres ya cursados. Las horas técnicas se suman desde las competencias técnicas; no son el sobrante de una jornada genérica. Bilingüismo e Integralidad usan las competencias marcadas como transversales.
 
-El crecimiento se redondea **hacia arriba por especialidad** para cumplir el mínimo con fichas enteras: 1 ficha que pasa implica al menos 1 nueva; 21 implican al menos 2. Una especialidad con cero continuaciones tiene crecimiento mínimo cero. Esto puede producir un crecimiento efectivo mayor al 5 %, especialmente en programas pequeños.
+Las horas diurnas y mixtas de referencia no sustituyen las horas curriculares. Cambiar las semanas efectivas sí cambia las horas trimestrales: los Excel expresan cargas semanales. Se supone programación distribuida durante el trimestre; sin horarios de clase no se estiman picos diarios.
 
-La meta ingresada no se modifica. La pantalla, SQLite y el Excel conservan por separado la meta original, sus fichas equivalentes, las nuevas proyectadas, las fichas adicionales sobre la meta y los cupos proyectados. El crecimiento del 5 % es ahora **un mínimo obligatorio**, que reemplaza la guía opcional anterior. Los cálculos de demanda y contratación usan el total realmente proyectado, incluyendo el excedente.
+El detalle mensual identifica cada ficha que pasa y crea identificadores de proyección para las nuevas. Solo suma meses a partir de su oferta de ingreso y hasta su terminación. Las semanas trimestrales se reparten por igual: con 12 semanas son 4 por mes. Esta es una distribución indicativa, pues los archivos no contienen fechas diarias, festivos ni horarios de clase. Los totales mensuales deben conciliar con los trimestrales y anuales.
 
-Al abrir una planeación guardada con el método anterior se conservan sus continuaciones y terminaciones. La meta única se muestra inicialmente en Técnico y debe redistribuirse; complete nivel y jornada antes de ejecutar. Si una fila antigua incluye varias combinaciones, divida sus cantidades. Los resultados guardados no se reescriben hasta ejecutar. Si la planeación es tan antigua que no registraba terminaciones, estas comienzan en cero y se deben revisar.
+La variante de nombre «Órtesis y prótesis» se vincula con «Prótesis y órtesis». Una ficha O&P/P&O puede usar la malla diurna del mismo programa únicamente si esta confirma diez trimestres y no existe una malla O&P explícita; no toma una diurna regular de siete trimestres.
 
-## Formato del reporte
+Si una combinación con demanda no tiene malla, la ejecución se bloquea e identifica programa y jornada. No se completa con otra malla ni cargas genéricas. El diagnóstico inicial de continuaciones sin malla usa las duraciones históricas, sin habilitar el cálculo final.
 
-Se lee la primera hoja de un archivo `.xlsx`. Debe contener los encabezados, en este orden:
+## Fichas e instructores
 
-| Nombre | Documento | Tipo Contrato | Total Horas |
-| --- | --- | --- | --- |
-| DESARROLLO DE SOFTWARE | | | |
-| Ana Pérez | 001234 | Planta | 32 |
-| Luis López | 005678 | Contratista | 40 |
+Se conserva la regla de reposiciones y crecimiento mínimo del 5 % por programa y nivel, redondeada una vez entre sus jornadas. Las metas de Técnico y Tecnólogo se convierten en fichas por separado. Si los mínimos superan la meta, se informa el excedente. El saldo se reparte según continuaciones; sin continuaciones, equitativamente entre combinaciones registradas del nivel.
 
-Las filas con solo la primera celda diligenciada indican la especialidad de los instructores siguientes. Se permiten títulos antes de los encabezados y encabezados repetidos. Se conservan las especialidades sin instructores y los ceros iniciales de documentos guardados como texto en Excel. Los documentos repetidos se rechazan para evitar contar dos veces la capacidad de una persona.
+Las reposiciones se abren después de la terminación. Las de T4 quedan para la próxima vigencia. Se incluyen las terminaciones y reposiciones de las fichas nuevas si su duración lo requiere. Los porcentajes de oferta distribuyen el crecimiento y saldo adicional.
 
-El tipo `Planta` se reconoce ignorando mayúsculas y espacios externos. Los demás tipos se mantienen como registros no pertenecientes a planta, igual que en el modelo original. Las especialidades que contienen `BILING` o `INTEGRAL` se clasifican como bilingüismo o integralidad; las demás son técnicas.
+```text
+Capacidad de planta = instructores del perfil × horas semanales de planta
+Déficit = MAX(demanda semanal del trimestre − capacidad de planta, 0)
+Contratistas requeridos = CEIL(déficit / horas semanales por contratista)
+```
 
-## Datos persistidos
+La planta se cuenta una sola vez por especialidad, compartida entre niveles y jornadas. Se redondea por perfil y trimestre. El pico general corresponde a contratistas simultáneos, no a sumar picos de períodos distintos.
 
-La base se crea automáticamente en `data/planeacion.sqlite3` en la primera ejecución válida. Las pruebas usan bases temporales independientes.
+La capacidad disponible incluye **únicamente planta**. Los contratistas actuales del reporte no se muestran ni se descuentan: el resultado es toda la contratación necesaria para la vigencia. No se compensa la falta de un perfil con capacidad libre de otro. Los picos muestran personas simultáneas, no la suma de los doce meses.
 
-| Tabla o vista | Información |
+La propuesta de asignación comparte las horas de cada instructor entre varias fichas: usa primero planta y luego los contratistas proyectados necesarios. Muestra capacidad, horas asignadas, horas libres y fichas atendidas por instructor y mes. Ninguna persona puede superar su capacidad; la suma asignada a cada ficha debe cubrir su demanda. Se asigna por la especialidad o área del reporte; no se infieren habilitaciones por competencia ni se resuelven cruces de horarios diarios.
+
+### Períodos de contratación y exceso
+
+La planeación muestra los picos total, técnico y transversal con sus trimestres, y propone grupos de contratos con cantidad, fecha de inicio y fecha de fin. Conserva cada cupo durante los trimestres consecutivos donde se necesita y separa los períodos si hay un intervalo sin necesidad. Los cupos activos de cada perfil deben coincidir exactamente con los contratistas requeridos en cada trimestre.
+
+Por ejemplo, si un perfil requiere 27, 21, 10 y 0 contratistas en T1–T4, propone 6 de enero a marzo, 11 de enero a junio y 10 de enero a septiembre. Si se conservaran los 27 todo el año, sobrarían 0, 6, 17 y 27 en esos trimestres. La tabla muestra ese exceso condicional y también la reducción respecto al trimestre anterior. Un período que llega a diciembre cubre el horizonte de esta planeación; su continuidad se evalúa en la siguiente vigencia.
+
+Los picos de perfiles distintos pueden ocurrir en trimestres diferentes y no se suman como pico simultáneo. La suma de contratistas por duración expresa meses-contratista, no personas únicas. Concentrar ingresos al inicio no garantiza que el pico ocurra en T1: las fichas anteriores pueden continuar y las competencias cambian según su trimestre de formación.
+
+## Reportes existentes
+
+- **Instructores**: primera hoja con `Nombre`, `Documento`, `Tipo Contrato`, `Total Horas`, agrupada por especialidad. Se rechazan documentos repetidos. Las secciones Bilingüismo e Integralidad identifican esos grupos de capacidad.
+- **Fichas**: primera hoja con `N°`, `Número Ficha`, `Tipo Formación`, `Jornada`, `Trimestre`, agrupada por programa. El título debe contener el período, por ejemplo `2026 - Trimestre 4`. Se rechazan fichas repetidas. La vigencia debe ser posterior al año del reporte.
+
+El reporte incluido `data/reporteFichas_2026_4.xlsx` contiene varios programas. Las dos mallas ADSO de las pruebas cubren solamente ADSO Diurna y Mixta: las demás se recuperan del catálogo que el usuario haya cargado. La aplicación no carga archivos locales automáticamente.
+
+## Persistencia y exportación
+
+| Tabla | Contenido |
 | --- | --- |
-| `specialties` | Catálogo de especialidades y área, incluidas las agregadas en la distribución. |
-| `instructors` | Nombre, documento, especialidad, tipo de contrato, horas programadas y marca de planta de cada instructor. |
-| `plant_instructors` (vista) | Consulta directa de los profesores de planta con nombre y especialidad. |
-| `execution` | Una única ejecución con fecha UTC y datos JSON: archivo de origen, huella del contenido, vigencia, reglas, distribución y resultados. |
+| `curricula` | Programa, jornada, duración, archivo y huella del contenido. |
+| `competencies` | Catálogo único, selección transversal, área y procedencia automática/manual de la clasificación. |
+| `curriculum_outcomes` | Resultado, competencia, título original, trimestre, horas y hoja/fila del Excel. |
+| `specialties`, `instructors`, vista `plant_instructors` | Último reporte normalizado de instructores. |
+| `execution` | Última ejecución, entradas, copia de mallas y clasificación, cálculos y resultados. |
 
-Se mantienen los contratistas del reporte como referencia, pero **no se descuentan de la necesidad proyectada**. La exportación incluye resumen, reglas, distribución proyectada, mínimos de reposición y crecimiento, técnicos, transversales, capacidad de planta, nombres de los instructores de planta y especialidades. Las ejecuciones antiguas siguen exportando su guía original cuando corresponde.
+Guardar una planeación reemplaza los instructores y la ejecución previa en una transacción. Las mallas y competencias permanecen. Modificar el catálogo no modifica la copia de una ejecución anterior ni su descarga.
 
-## Reglas de cálculo
+El Excel contiene distribución, metas, calendario, dotación, continuaciones y capacidad, más **Mallas curriculares**, **Competencias**, **Resultados curriculares** y **Trazabilidad horas**. Esta última muestra cohorte/ficha, edad, competencia, resultado, horas unitarias, fichas, horas requeridas y hoja/fila de origen.
 
-Los valores iniciales se definen en `core/config.py` y son editables desde la aplicación:
+También exporta **Resumen mensual**, **Horas mensuales por ficha**, **Dotacion mensual por perfil**, **Capacidad mensual instructores**, **Asignacion mensual de horas** y **Supuestos mensuales**. La ejecución guarda estas tablas para que una descarga posterior conserve los mismos cálculos.
 
-- 25 aprendices por ficha.
-- Diurna: 30 horas semanales por ficha; 6 de bilingüismo, 6 de integralidad y 18 técnicas.
-- Mixta: 26 horas semanales por ficha; 4 de bilingüismo, 4 de integralidad y 18 técnicas.
-- 32 horas semanales de capacidad por instructor de planta.
-- 40 horas semanales por contratista proyectado.
-- 4 trimestres de 12 semanas efectivas: **48 semanas al año**.
-- Oferta adicional inicialmente 50 %, 25 %, 15 % y 10 %, editable y con suma de 100 %.
+Las hojas **Periodos de contratacion**, **Contratacion por trimestre**, **Picos por perfil**, **Excesos y reducciones** y **Criterio de contratacion** permiten revisar y reproducir la duración de la necesidad. Las ejecuciones antiguas deben recalcularse desde sus reportes y mallas para obtener este desglose con capacidad de planta únicamente.
 
-```text
-Fichas activas del trimestre = continuaciones sin terminar + cohortes nuevas todavía activas
-Horas anuales = SUMA(fichas activas del trimestre × horas semanales por ficha × semanas del trimestre)
-Demanda técnica del trimestre = fichas activas de la especialidad × horas técnicas por ficha
-Capacidad planta = instructores de planta de la especialidad × horas por instructor
-Déficit = MAX(demanda - capacidad planta, 0)
-Contratistas requeridos = CEIL(déficit / horas por contratista)
-```
+La documentación previa se conserva en `docs/MODELOS_ANTERIORES.md`. Sus cálculos y pruebas de regresión permanecen; la interfaz principal usa el flujo curricular automático.
 
-Bilingüismo e integralidad se calculan por separado sobre las fichas activas de cada trimestre. El redondeo de contratistas se aplica por especialidad para no compensar déficits entre perfiles diferentes.
-
-La planta se cuenta **una sola vez por especialidad**, compartiendo sus horas entre ambos niveles y jornadas. No se asigna un instructor completo a cada ficha. Con 18 horas técnicas por ficha, un instructor de 32 horas cubre el equivalente a **1,78 fichas**: dos fichas requieren 36 horas y dejan 4 por cubrir. Dos instructores cubren tres fichas (54 horas) y disponen de 10 horas restantes. La tabla muestra demanda, horas atendidas, capacidad equivalente y déficit.
-
-Al ingresar las metas aparece una referencia de **horas anuales** por nivel y jornada regular, según las ofertas trimestrales. Al completar la distribución se sustituye por el total del escenario, incluidas continuaciones, O&P y reposiciones. Los ingresos se consideran al inicio del trimestre y las terminaciones al final. Son horas dentro del año planeado, no las de toda la duración del programa.
-
-La oferta adicional prioriza T1 y se reparte proporcionalmente al tamaño de las especialidades; las reposiciones siguen las terminaciones. La tabla **Terminaciones por trimestre** toma las fechas del Excel y permite corregirlas. Sin fechas se propone un reparto uniforme; las modificaciones del total se reparten siguiendo la proporción original cuando existe. La suma trimestral debe coincidir con el total manual. Cambiar metas o parámetros conserva estas correcciones.
-
-La demanda y contratación se calculan **por trimestre**, sin contar simultáneamente una ficha y su reemplazo. Ejemplo: dos fichas de Tecnólogo, una terminación en T2 y una ficha de crecimiento producen tres activas en cada trimestre. Dos instructores cubren las 54 horas técnicas; sumar las cuatro fichas atendidas en el año produciría erróneamente 72 horas semanales. Se presentan las horas a contratar y la dedicación equivalente por trimestre, además del pico simultáneo de personas, para no interpretar ese pico como contratación anual completa.
-
-El Excel añade **Calendario de fichas**, **Resumen trimestral**, **Terminaciones por trimestre**, **Planta tecnica por trimestre** y **Transversales por trimestre**, además de **Metas por nivel** y **Horas por nivel y jornada**. SQLite conserva el calendario, las correcciones y los resultados anuales. Los resultados antiguos se mantienen hasta volver a ejecutar con las reglas nuevas.
-
-## Estructura y cambios
-
-La aplicación original ya separaba lectura de Excel (`core/excel_parser.py`), reglas (`core/config.py`) y cálculos (`core/planner.py`). La interfaz recalculaba automáticamente en cada interacción, no persistía datos y usaba una clave de editor que no distinguía archivos.
-
-La estructura actual agrega una capa de ejecución validada, persistencia transaccional y presentación de resultados guardados:
-
-```text
-app.py                  # Ingreso centralizado, estado del borrador y botón de ejecución
-core/
-  config.py             # Reglas del escenario
-  excel_parser.py       # Lectura y validación del reporte seccionado
-  fichas_parser.py      # Lectura del reporte de fichas por especialidad
-  ficha_projection.py  # Duración y continuidad por trimestre
-  planner.py            # Fórmulas de demanda, capacidad y contratación
-  level_planner.py      # Metas independientes, jornadas y capacidad compartida
-  calendar_planner.py   # Cohortes, reposiciones, horas anuales y contratación trimestral
-  workflow.py           # Validación de la distribución y ejecución completa
-  database.py           # Reemplazo atómico y recuperación en SQLite
-  export.py             # Excel de la última ejecución
-ui/
-  ficha_input.py        # Importación, período, jornadas especiales y vista previa
-  calendar_input.py     # Terminaciones por trimestre editables y recuperables
-  results.py            # Resultados, datos guardados y metodología
-reporteInstructores_2026_4.xlsx  # Reporte incluido en la raíz (también se admite en data/)
-data/
-  reporteFichas_2026_4.xlsx  # Reporte de fichas incluido
-  planeacion.sqlite3    # Se crea al ejecutar; excluida de Git
-tests/                  # Parser, cálculo, persistencia, exportación y flujo de interfaz
-```
-
-El archivo `config/defaults.json` se conserva como referencia del proyecto original; las reglas efectivas provienen de `PlanningRules` y de los parámetros guardados.
-
-## Verificación
+## Pruebas
 
 ```powershell
-py -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Las pruebas cubren los reportes incluidos (71 instructores, 19 de planta y 66 fichas), límites de finalización y las cuatro duraciones, O&P/P&O, ofertas escalonadas, 48 semanas, componentes anuales de Diurna/Mixta, rotación de nuevas técnicas, reposiciones de T4 para la siguiente vigencia, programas pequeños sin sobreestimar planta, correcciones trimestrales, metas independientes, validaciones, recuperación en SQLite e interacción y exportación del calendario.
+Las pruebas usan bases temporales. Los dos Excel originales están en `tests/fixtures/curricula/`. Se comprueban importación, deduplicación, clasificación, reimportación, transacciones, jornadas, duraciones, continuaciones, ofertas, capacidad compartida, exportación y recuperación de la interfaz.
+
+Para comprobar los reportes y mallas de la base local y generar un Excel de revisión sin reemplazar la última ejecución:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/validate_curricula.py
+```
+
+El archivo se escribe en `data/validaciones/planeacion_periodos_contratacion.xlsx`.

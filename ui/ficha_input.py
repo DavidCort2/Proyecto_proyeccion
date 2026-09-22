@@ -2,7 +2,6 @@
 from hashlib import sha256
 from io import BytesIO
 import json
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -17,32 +16,30 @@ def read_fichas(content: bytes) -> pd.DataFrame:
     return parse_fichas_excel(BytesIO(content))
 
 
-def ficha_inputs(previous: dict, planning_year: int, catalog: pd.DataFrame, included_path: Path):
+def ficha_inputs(previous: dict, planning_year: int, catalog: pd.DataFrame):
     """Devuelve contexto persistible, clave de importación y validez de la carga."""
     st.markdown("**Reporte de fichas actuales**")
-    modes = ["Ingreso manual", "Cargar reporte de fichas", "Usar reporte de fichas incluido"]
+    modes = ["Cargar reporte de fichas"]
     saved = previous.get("ficha_import")
-    if saved:
+    if previous:
         modes.append("Usar reporte de fichas guardado")
-    if "fichas_mode" not in st.session_state:
+    if st.session_state.get("fichas_mode") not in modes:
         st.session_state.fichas_mode = modes[-1] if saved else modes[0]
     mode = st.radio("Origen de las fichas", modes, key="fichas_mode", horizontal=True)
-    if mode == "Ingreso manual":
-        return None, "manual", True
     try:
         if mode == "Usar reporte de fichas guardado":
+            if not saved:
+                st.caption("La planeación guardada contiene cantidades manuales. Puede revisarlas en la tabla.")
+                return None, "manual", True
             frame = pd.DataFrame(saved["rows"])
             name, digest = saved["source_name"], saved["source_digest"]
             initial_year, initial_quarter = saved["report_year"], saved["report_quarter"]
         else:
-            if mode == "Cargar reporte de fichas":
-                uploaded = st.file_uploader("Reporte de fichas (.xlsx)", type=["xlsx"], key="fichas_upload")
-                if uploaded is None:
-                    st.info("Seleccione el reporte para calcular las continuaciones.")
-                    return None, "missing", False
-                name, content = uploaded.name, uploaded.getvalue()
-            else:
-                name, content = included_path.name, included_path.read_bytes()
+            uploaded = st.file_uploader("Reporte de fichas (.xlsx)", type=["xlsx"], key="fichas_upload")
+            if uploaded is None:
+                st.info("Cargue el reporte para calcular las continuaciones automáticamente, o complete las cantidades en la tabla editable.")
+                return None, "manual", True
+            name, content = uploaded.name, uploaded.getvalue()
             digest = sha256(content).hexdigest()
             frame = read_fichas(content)
             initial_year = frame.attrs.get("report_year", planning_year - 1)

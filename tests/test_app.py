@@ -16,22 +16,43 @@ def serialize_editor_events(monkeypatch):
     original = element_tree.get_widget_state
 
     def with_editor_state(node):
-        if isinstance(node, element_tree.Dataframe) and node.key and node.key.startswith(("distribution_", "quarter_editor_")):
+        if isinstance(node, element_tree.Dataframe) and node.key and node.key.startswith(("distribution_", "quarter_editor_", "transversal_editor_", "modules_editor_", "continuing_hours_editor_")):
             return WidgetState(id=node.proto.id, string_value=json.dumps(node.root.session_state[node.key]))
         return original(node)
 
     monkeypatch.setattr(element_tree, "get_widget_state", with_editor_state)
 
 
-def app_for_test(db_path, excel_path, fichas_path=None):
+def app_for_test(db_path, excel_path, fichas_path=None, modular=False):
     from pathlib import Path
+    from io import BytesIO
+    from unittest.mock import patch
+    import streamlit as st
     import app
 
     app.DATABASE_PATH = Path(db_path)
-    app.DEFAULT_EXCEL = Path(excel_path)
-    if fichas_path:
-        app.DEFAULT_FICHAS = Path(fichas_path)
-    app.main()
+    # Escenarios históricos uniformes; las pruebas modulares usan el modo real por defecto.
+    if not modular and "transversal_demand_model" not in st.session_state:
+        st.session_state.transversal_demand_model = "Semanal uniforme (escenario de referencia)"
+
+    def uploaded_file(label, *, key, **kwargs):
+        is_fichas = key == "fichas_upload"
+        if not st.session_state.get("test_fichas_uploaded" if is_fichas else "test_uploaded", False):
+            return None
+        path = Path(fichas_path) if is_fichas else Path(excel_path)
+        content = BytesIO(path.read_bytes())
+        content.name = path.name
+        return content
+
+    with patch("streamlit.file_uploader", side_effect=uploaded_file):
+        # Regresión del flujo histórico; la interfaz principal automática se
+        # comprueba en test_curriculum_app.py.
+        app.legacy_main()
+
+
+def upload_report(app, fichas=False):
+    app.session_state["test_fichas_uploaded" if fichas else "test_uploaded"] = True
+    app.radio(key="fichas_mode" if fichas else "source_mode").set_value("Cargar reporte de fichas" if fichas else "Cargar un archivo Excel").run()
 
 
 def button(app, label):
@@ -70,7 +91,7 @@ def test_execute_reload_and_replace_file(tmp_path, report_path):
     assert not app.exception
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert not db.exists()
-    app.radio[0].set_value("Usar reporte incluido").run()
+    upload_report(app)
     assert not app.exception
     assert not db.exists()  # Seleccionar un archivo no escribe ni ejecuta.
     assert button(app, "Ejecutar y guardar planeación").disabled
@@ -127,7 +148,7 @@ def test_target_changes_automatically_reproject_without_erasing_counts(tmp_path,
     db = tmp_path / "planning.sqlite3"
     report = report_path
     app = AppTest.from_function(app_for_test, args=(str(db), str(report)), default_timeout=20).run()
-    app.radio[0].set_value("Usar reporte incluido").run()
+    upload_report(app)
     enter_counts(app, {0: 20, 1: 10}, {0: 4, 1: 6})
     app.number_input(key="target_technical").set_value(1000).run()
     assert not button(app, "Ejecutar y guardar planeación").disabled
@@ -146,7 +167,7 @@ def test_automatic_growth_can_exceed_target_without_changing_it(tmp_path, report
     db = tmp_path / "planning.sqlite3"
     report = report_path
     app = AppTest.from_function(app_for_test, args=(str(db), str(report)), default_timeout=20).run()
-    app.radio[0].set_value("Usar reporte incluido").run()
+    upload_report(app)
     app.number_input(key="target_technical").set_value(50).run()
     enter_counts(app, {0: 20}, {0: 8})
     assert not app.exception
@@ -184,7 +205,7 @@ def test_invalid_endings_cannot_be_saved(tmp_path, report_path):
     db = tmp_path / "planning.sqlite3"
     report = report_path
     app = AppTest.from_function(app_for_test, args=(str(db), str(report)), default_timeout=20).run()
-    app.radio[0].set_value("Usar reporte incluido").run()
+    upload_report(app)
     enter_counts(app, {0: 2}, {0: 3})
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert not db.exists()
@@ -240,8 +261,8 @@ def test_fichas_prefill_overrides_persistence_and_replacement(tmp_path, report_p
     write_fichas_report(report)
     args = (str(db), str(report_path), str(report))
     app = AppTest.from_function(app_for_test, args=args, default_timeout=20).run()
-    app.radio(key="source_mode").set_value("Usar reporte incluido").run()
-    app.radio(key="fichas_mode").set_value("Usar reporte de fichas incluido").run()
+    upload_report(app)
+    upload_report(app, fichas=True)
     assert not app.exception
     assert not app.error
     base = app.session_state["distribution_base"]
@@ -284,8 +305,8 @@ def test_op_schedules_have_automatic_ten_quarter_duration(tmp_path, report_path)
     from pathlib import Path
     fichas = Path(__file__).resolve().parents[1] / "data/reporteFichas_2026_4.xlsx"
     app = AppTest.from_function(app_for_test, args=(str(tmp_path / "db.sqlite3"), str(report_path), str(fichas)), default_timeout=20).run()
-    app.radio(key="source_mode").set_value("Usar reporte incluido").run()
-    app.radio(key="fichas_mode").set_value("Usar reporte de fichas incluido").run()
+    upload_report(app)
+    upload_report(app, fichas=True)
     assert not button(app, "Ejecutar y guardar planeación").disabled
     assert len(app.selectbox) == 0
     assert not app.exception
@@ -305,7 +326,7 @@ def test_two_targets_preview_mixed_hours_and_shared_capacity_survive_reopen(tmp_
     ]).to_excel(report, index=False, header=False)
     args = (str(db), str(report))
     app = AppTest.from_function(app_for_test, args=args, default_timeout=20).run()
-    app.radio(key="source_mode").set_value("Usar reporte incluido").run()
+    upload_report(app)
     app.number_input(key="target_technical").set_value(25)
     app.number_input(key="target_technologist").set_value(25).run()
     key = f"distribution_{app.session_state['distribution_source']}_{app.session_state['editor_revision']}"
@@ -358,7 +379,7 @@ def test_quarter_end_edits_change_annual_hours_and_survive_save(tmp_path):
     ]).to_excel(report, index=False, header=False)
     args = (str(db), str(report))
     app = AppTest.from_function(app_for_test, args=args, default_timeout=20).run()
-    app.radio(key="source_mode").set_value("Usar reporte incluido").run()
+    upload_report(app)
     app.number_input(key="target_technical").set_value(0)
     app.number_input(key="target_technologist").set_value(50).run()
     key = f"distribution_{app.session_state['distribution_source']}_{app.session_state['editor_revision']}"
@@ -388,3 +409,52 @@ def test_quarter_end_edits_change_annual_hours_and_survive_save(tmp_path):
     app.run()
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert load_planning(db)[1]["center"]["demanda_total_horas_anuales"] == 4500
+
+
+def test_default_modular_ui_requires_real_hours_and_has_only_upload_or_saved_sources(tmp_path):
+    db = tmp_path / "modules.sqlite3"
+    report = tmp_path / "instructors.xlsx"
+    pd.DataFrame([
+        ["Nombre", "Documento", "Tipo Contrato", "Total Horas"],
+        ["ADSO"], ["Profesora", "001", "Planta", 32],
+        ["Bilingüismo"], ["Docente idiomas", "002", "Contratista", 10],
+    ]).to_excel(report, index=False, header=False)
+    args = (str(db), str(report), None, True)
+    app = AppTest.from_function(app_for_test, args=args, default_timeout=20).run()
+    assert app.radio(key="source_mode").options == ["Cargar un archivo Excel"]
+    assert app.radio(key="transversal_demand_model").value.startswith("Por módulos")
+    upload_report(app)
+    assert app.radio(key="fichas_mode").options == ["Cargar reporte de fichas"]
+    app.number_input(key="target_technical").set_value(0)
+    app.number_input(key="target_technologist").set_value(25).run()
+    key = f"distribution_{app.session_state['distribution_source']}_{app.session_state['editor_revision']}"
+    app.session_state[key] = {"edited_rows": {0: {"Nivel": "Tecnólogo", "Fichas que pasan": 0}}, "added_rows": [], "deleted_rows": []}
+    app.run()
+    assert not app.exception
+    assert button(app, "Ejecutar y guardar planeación").disabled
+    assert not db.exists()
+    node = next(item for item in app.dataframe if item.key and item.key.startswith("modules_editor_"))
+    edits = {index: {"Bilingüismo (h)": 12.0 if index == 0 else 0.0,
+                     "Integralidad (h)": 24.0 if index == 1 else 0.0} for index in range(len(node.value))}
+    app.session_state[node.key] = {"edited_rows": edits, "added_rows": [], "deleted_rows": []}
+    app.run()
+    assert not app.exception
+    assert not button(app, "Ejecutar y guardar planeación").disabled
+    button(app, "Ejecutar y guardar planeación").click().run()
+    saved = load_planning(db)[1]
+    assert saved["transversal_demand_model"] == "modules"
+    assert saved["center"]["demanda_bilinguismo_horas_anuales"] == 12
+    assert saved["center"]["demanda_integralidad_horas_anuales"] == 24
+    assert saved["summary"]["transversales_adicionales_pico"] == 1  # Integralidad en T2, sin personal de esa área.
+    assert all(row["Contratistas adicionales"] == 0 for row in saved["transversal_quarterly"] if row["Área"] == "Bilingüismo")
+    reopened = AppTest.from_function(app_for_test, args=args, default_timeout=20).run()
+    assert not reopened.exception
+    assert reopened.radio(key="source_mode").value == "Usar datos guardados"
+    assert set(reopened.radio(key="source_mode").options) == {"Cargar un archivo Excel", "Usar datos guardados"}
+    assert not any("pendientes de ejecutar" in message.value for message in reopened.warning)
+    continuity = next(item for item in reopened.dataframe if item.key and item.key.startswith("transversal_editor_"))
+    reopened.session_state[continuity.key] = {"edited_rows": {0: {"Contratistas a conservar": 0}}, "added_rows": [], "deleted_rows": []}
+    reopened.run()
+    assert not reopened.exception
+    assert any("pendientes de ejecutar" in message.value for message in reopened.warning)
+    assert load_planning(db)[1]["transversal_continuity"][0]["Contratistas a conservar"] == 1

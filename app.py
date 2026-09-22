@@ -23,13 +23,10 @@ from core.level_planner import MANUAL_COLUMNS, execute_level_plan, validate_prof
 from ui.results import render_results
 from ui.ficha_input import ficha_inputs
 from ui.calendar_input import calendar_inputs
+from ui.transversal_input import transversal_inputs, module_inputs
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_EXCEL = BASE_DIR / "reporteInstructores_2026_4.xlsx"
-if not DEFAULT_EXCEL.exists():
-    DEFAULT_EXCEL = BASE_DIR / "data" / "reporteInstructores_2026_4.xlsx"
 DATABASE_PATH = BASE_DIR / "data" / "planeacion.sqlite3"
-DEFAULT_FICHAS = BASE_DIR / "data" / "reporteFichas_2026_4.xlsx"
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
@@ -37,7 +34,8 @@ def read_report(content: bytes) -> pd.DataFrame:
     return parse_instructors_excel(BytesIO(content))
 
 
-def main() -> None:
+def legacy_main() -> None:
+    """Compatibilidad de la interfaz anterior para verificar ejecuciones históricas."""
     st.set_page_config(page_title="Planeación Indicativa SENA", page_icon="📊", layout="wide")
     st.title("Planeación Indicativa")
     st.caption("Centro de Formación SENA · Prepare los datos, distribuya las fichas y ejecute la planeación de la próxima vigencia.")
@@ -59,10 +57,10 @@ def main() -> None:
     with st.container(border=True):
         st.subheader("1. Preparar la planeación")
         st.caption("Todos los datos se ingresan aquí. Al ejecutar se reemplazan la carga y los resultados anteriores; no se acumulan archivos.")
-        options = ["Cargar un archivo Excel", "Usar reporte incluido"]
+        options = ["Cargar un archivo Excel"]
         if saved:
             options.insert(0, "Usar datos guardados")
-        if "source_mode" not in st.session_state:
+        if st.session_state.get("source_mode") not in options:
             st.session_state.source_mode = options[0]
         source_mode = st.radio("Origen de los instructores", options, key="source_mode", horizontal=True)
         content = None
@@ -71,12 +69,6 @@ def main() -> None:
             st.caption("Primera hoja: Nombre, Documento, Tipo Contrato y Total Horas, con las especialidades como títulos de sección.")
             if uploaded is not None:
                 source_name, content = uploaded.name, uploaded.getvalue()
-        elif source_mode == "Usar reporte incluido":
-            source_name = DEFAULT_EXCEL.name
-            try:
-                content = DEFAULT_EXCEL.read_bytes()
-            except OSError as exc:
-                st.error(f"No fue posible leer el reporte incluido: {exc}")
         elif saved:
             instructors = saved[0]
             source_name, source_digest = previous["source_name"], previous["source_digest"]
@@ -96,7 +88,7 @@ def main() -> None:
             with st.expander("Revisar los instructores del archivo antes de ejecutar"):
                 st.dataframe(instructors, hide_index=True, use_container_width=True)
         else:
-            st.info("Seleccione un archivo válido o el reporte incluido para preparar la distribución.")
+            st.info("Cargue un archivo válido o use los datos guardados para preparar la distribución.")
 
         c1, c2, c3 = st.columns(3)
         year = c1.number_input("Vigencia a planear", min_value=2000, max_value=2200, value=previous.get("planning_year", date.today().year + 1), step=1, key="planning_year")
@@ -105,9 +97,17 @@ def main() -> None:
         target_technologist = c3.number_input("Meta de aprendices · Tecnólogo", min_value=0, value=saved_targets.get("Tecnólogo", 0), step=25, key="target_technologist")
         targets = {"Técnico": int(target_technical), "Tecnólogo": int(target_technologist)}
         target = sum(targets.values())
+        demand_labels = ["Por módulos (horas por trimestre de formación)", "Semanal uniforme (escenario de referencia)"]
+        demand_model = st.radio("Cálculo de bilingüismo e integralidad", demand_labels,
+                                index=1 if previous.get("transversal_demand_model") == "weekly" else 0, key="transversal_demand_model")
+        modular = demand_model == demand_labels[0]
+        if modular:
+            st.caption("La demanda transversal se obtiene de los módulos y horas pendientes, no de multiplicar todas las fichas por una carga semanal fija.")
         if previous and not saved_targets:
             st.info("La meta anterior no distinguía niveles. Se muestra inicialmente en Técnico; redistribúyala entre Técnico y Tecnólogo y clasifique las filas antes de ejecutar.")
         with st.expander("Parámetros de cálculo", expanded=True):
+            if modular:
+                st.caption("Los campos semanales de bilingüismo e integralidad se conservan como referencia del escenario uniforme. En este cálculo por módulos se usan las horas curriculares de la tabla, y la formación técnica ocupa el resto de la jornada.")
             c1, c2, c3 = st.columns(3)
             learners = c1.number_input("Aprendices por ficha", min_value=1, value=int(defaults["learners_per_ficha"]), key="learners_per_ficha")
             weekly = c2.number_input("Horas semanales por ficha diurna", min_value=1.0, value=float(defaults["weekly_hours_per_ficha"]), step=1.0, key="weekly_hours_per_ficha")
@@ -148,7 +148,7 @@ def main() -> None:
         ficha_ready, import_key = True, "manual"
         if instructors is not None:
             ficha_import, import_key, ficha_ready = ficha_inputs(
-                previous, int(year), technical_specialty_catalog(instructors), DEFAULT_FICHAS,
+                previous, int(year), technical_specialty_catalog(instructors),
             )
         st.markdown("**2. Ingresar las fichas por especialidad técnica**")
         st.caption(
@@ -204,10 +204,15 @@ def main() -> None:
                 key=f"distribution_{distribution_source}_{st.session_state.editor_revision}",
             )
             try:
+                transversal_continuity = transversal_inputs(instructors, rules, previous, source_digest, int(year))
                 manual = validate_profiles(manual, instructors)
                 quarter_endings = calendar_inputs(manual, ficha_import, previous, distribution_source + str(year))
+                modules, continuing_hours = (module_inputs(manual, quarter_endings, rules, previous, ficha_import, source_digest, int(year))
+                                             if modular else (None, None))
                 execution_preview = execute_level_plan(instructors, manual, rules, targets, int(year), source_name, source_digest,
-                                                       quarter_endings=quarter_endings, ficha_import=ficha_import)
+                                                       quarter_endings=quarter_endings, ficha_import=ficha_import,
+                                                       transversal_continuity=transversal_continuity,
+                                                       transversal_modules=modules, continuing_transversal_hours=continuing_hours)
                 distribution = pd.DataFrame(execution_preview["distribution"], columns=MANUAL_COLUMNS + ["Fichas nuevas"])
                 continuing = int(distribution["Fichas que pasan"].sum())
                 projected_new = int(distribution["Fichas nuevas"].sum())
@@ -225,6 +230,16 @@ def main() -> None:
                     annual_columns[2].metric("Total de horas al año", f"{execution_preview['center']['demanda_total_horas_anuales']:g}")
                     st.caption(f"Horas de formación durante {year}: suma de fichas activas × horas semanales × {weeks} semanas en cada trimestre. Incluye continuaciones y nuevas; no son horas de toda la duración del programa.")
                 st.dataframe(pd.DataFrame(execution_preview["quarterly"]), hide_index=True, use_container_width=True)
+                st.markdown("**Contratación transversal adicional**")
+                st.write(f"Pico de **{execution_preview['summary']['transversales_adicionales_pico']} contratistas adicionales**, después de usar la planta y los contratos que prevé conservar. Horas adicionales del año: **{execution_preview['summary']['horas_adicionales_transversales_anuales']:g}**.")
+                st.dataframe(pd.DataFrame(execution_preview["transversal_quarterly"])[[
+                    "Área", "Trimestre", "Demanda (h/sem)", "Capacidad disponible (h/sem)",
+                    "Contratistas a conservar", "Contratistas adicionales", "Horas sin utilizar (h/sem)",
+                    "Horas adicionales del trimestre"]], hide_index=True, use_container_width=True)
+                if modular:
+                    st.caption("Las horas de módulos se distribuyen entre las semanas efectivas del trimestre. El resultado es una capacidad semanal media: requiere programar los módulos a lo largo del trimestre para evitar concentraciones en una misma semana.")
+                else:
+                    st.warning("Escenario semanal de referencia: aplica transversales todas las semanas. Para su operación por módulos, seleccione el cálculo por módulos y configure sus horas reales.")
                 projection = pd.DataFrame(execution_preview["hours"])
                 st.dataframe(projection, hide_index=True, use_container_width=True)
                 center_preview = execution_preview["center"]
@@ -288,11 +303,20 @@ def main() -> None:
         if draft_valid:
             pending = pending or distribution.to_dict("records") != current["distribution"]
             pending = pending or execution_preview["quarter_endings"] != current.get("quarter_endings")
+            pending = pending or execution_preview["transversal_continuity"] != current.get("transversal_continuity")
+            pending = pending or execution_preview["transversal_demand_model"] != current.get("transversal_demand_model")
+            pending = pending or execution_preview.get("transversal_modules") != current.get("transversal_modules")
+            pending = pending or execution_preview.get("continuing_transversal_hours") != current.get("continuing_transversal_hours")
         if pending:
             st.warning("Hay datos pendientes de ejecutar. Los resultados y la descarga corresponden a la última ejecución guardada indicada abajo.")
         render_results(*saved)
     else:
         st.info("Aún no hay una planeación guardada. Complete los datos y pulse «Ejecutar y guardar planeación» para obtener los resultados.")
+
+
+def main() -> None:
+    from ui.automatic_planning import render_automatic_planning
+    render_automatic_planning(DATABASE_PATH)
 
 
 if __name__ == "__main__":

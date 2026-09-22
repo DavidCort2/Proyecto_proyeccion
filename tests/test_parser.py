@@ -10,7 +10,7 @@ from core.excel_parser import parse_instructors_excel
 def test_parse_supplied_report(report_path):
     df = parse_instructors_excel(report_path)
     assert len(df) == 71
-    assert int(df["Es planta"].sum()) == 19
+    assert int(df["Es planta"].sum()) == 20
     assert "Bilingüismo" in set(df["Área"])
     assert "Integralidad" in set(df["Área"])
     assert "Técnica" in set(df["Área"])

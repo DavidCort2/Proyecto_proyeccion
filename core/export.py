@@ -25,6 +25,35 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
                                ("technical_quarterly", "Planta tecnica por trimestre"),
                                ("transversal_quarterly", "Transversales por trimestre")]:
                 pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
+        for key, sheet in [("transversal_current", "Capacidad transversal actual"),
+                           ("transversal_continuity", "Continuidad transversal"),
+                           ("transversal_modules", "Modulos transversales"),
+                           ("continuing_transversal_hours", "Horas pendientes transversales")]:
+            if key in execution:
+                pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
+        pd.DataFrame([{"Modelo transversal": execution.get("transversal_demand_model", "weekly")}]).to_excel(writer, sheet_name="Modelo de demanda", index=False)
+        if "monthly" in execution:
+            for key, sheet in [("monthly", "Resumen mensual"), ("monthly_fichas", "Horas mensuales por ficha"),
+                               ("monthly_staffing", "Dotacion mensual por perfil"), ("monthly_instructors", "Capacidad mensual instructores"),
+                               ("monthly_assignments", "Asignacion mensual de horas")]:
+                pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
+            pd.DataFrame([{"Distribución mensual": execution["monthly_basis"],
+                           "Base de contratación": execution.get("contracting_basis", execution.get("continuity_assumption", ""))}]).to_excel(writer, sheet_name="Supuestos mensuales", index=False)
+        if "contract_windows" in execution:
+            for key, sheet in [("contract_windows", "Periodos de contratacion"),
+                               ("contracting_quarterly", "Contratacion por trimestre"),
+                               ("contracting_profiles", "Picos por perfil"),
+                               ("contracting_profile_quarterly", "Excesos y reducciones")]:
+                pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
+            pd.DataFrame([{"Criterio de períodos": execution["contracting_periods_basis"]}]).to_excel(writer, sheet_name="Criterio de contratacion", index=False)
+        if execution.get("curriculum_catalog"):
+            catalog = execution["curriculum_catalog"]
+            pd.DataFrame([{key: value for key, value in item.items() if key != "outcomes"}
+                          for item in catalog["curricula"]]).to_excel(writer, sheet_name="Mallas curriculares", index=False)
+            pd.DataFrame(catalog["competencies"]).to_excel(writer, sheet_name="Competencias", index=False)
+            pd.DataFrame([{"Programa": item["program"], "Jornada": item["schedule"], **row}
+                          for item in catalog["curricula"] for row in item["outcomes"]]).to_excel(writer, sheet_name="Resultados curriculares", index=False)
+            pd.DataFrame(execution["curriculum_hours"]).to_excel(writer, sheet_name="Trazabilidad horas", index=False)
         if execution.get("ficha_import"):
             imported = execution["ficha_import"]
             pd.DataFrame([{

@@ -50,7 +50,7 @@ def validate_endings(manual, endings):
     return result
 
 
-def calendar_rows(distribution, endings, rules):
+def calendar_rows(distribution, endings, rules, durations=None):
     """Reserva reemplazos al trimestre siguiente y prioriza primera oferta adicional."""
     rows = []
     for index, row in distribution.iterrows():
@@ -59,13 +59,16 @@ def calendar_rows(distribution, endings, rules):
         additional = int(row["Fichas nuevas"]) - sum(replacements)
         intake = largest_remainder_allocation(additional, range(4), rules.intake_weights)
         starts = [replacements[q] + intake[q] for q in range(4)]
-        duration = duration_in_quarters(row["Nivel"], row["Jornada"])
+        from core.curriculum import curriculum_key
+        duration = (durations or {}).get(curriculum_key(row["Especialidad"], row["Jornada"]))
+        if duration is None:
+            duration = duration_in_quarters(row["Nivel"], row["Jornada"])
         # Una ficha técnica abierta en T1 termina en T3: se reemplaza en T4.
-        extra_replacements = 0
-        if duration == 3:
-            required = finish[2] + starts[0]
-            extra_replacements = max(0, required - starts[3])
-            starts[3] += extra_replacements
+        extra_replacements = [0] * 4
+        for q in range(duration, 4):
+            required = finish[q - 1] + starts[q - duration]
+            extra_replacements[q] = max(0, required - starts[q])
+            starts[q] += extra_replacements[q]
         rates = hours_by_profile(pd.DataFrame([row]), rules).iloc[0]
         for q in range(4):
             continuing = int(row["Fichas que pasan"]) - sum(finish[:q])
@@ -74,8 +77,8 @@ def calendar_rows(distribution, endings, rules):
             active = continuing + new_active
             item = {**{column: row[column] for column in PROFILE_COLUMNS},
                     "Trimestre": q + 1, "Semanas": rules.weeks_per_quarter,
-                    "Fichas nuevas": starts[q], "Reposiciones": replacements[q] + (starts[0] if duration == 3 and q == 3 else 0),
-                    "Nuevas adicionales por rotación": extra_replacements if q == 3 else 0,
+                    "Fichas nuevas": starts[q], "Reposiciones": replacements[q] + (starts[q - duration] if q >= duration else 0),
+                    "Nuevas adicionales por rotación": extra_replacements[q],
                     "Continuaciones activas": continuing, "Nuevas activas": new_active,
                     "Fichas activas": active, "Terminan continuaciones": finish[q],
                     "Terminan nuevas": new_ending, "Fichas al cierre": active - finish[q] - new_ending}
@@ -88,8 +91,25 @@ def calendar_rows(distribution, endings, rules):
     return pd.DataFrame(rows)
 
 
-def apply_calendar(execution, instructors, distribution, endings, rules):
-    calendar = calendar_rows(distribution, endings, rules)
+def apply_calendar(execution, instructors, distribution, endings, rules, *, modules=None, continuing_hours=None, ficha_import=None, curriculum_catalog=None):
+    from core.curriculum import duration_lookup
+    calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None)
+    if curriculum_catalog is not None:
+        from core.curriculum_planner import apply_curriculum_hours
+        if modules is not None:
+            raise ValueError("Seleccione un solo origen de horas: mallas o módulos manuales.")
+        calendar, audit = apply_curriculum_hours(calendar, curriculum_catalog, ficha_import, execution["planning_year"], rules)
+        execution["curriculum_catalog"] = curriculum_catalog
+        execution["curriculum_hours"] = audit
+    if modules is not None:
+        from core.transversal_modules import validate_modules, continuing_template, apply_module_hours
+        modules = validate_modules(modules, distribution, rules)
+        if continuing_hours is None:
+            continuing_hours = continuing_template(distribution, endings, modules, ficha_import, execution["planning_year"])
+        calendar, continuing_hours = apply_module_hours(calendar, modules, continuing_hours, rules)
+        execution["transversal_modules"] = records(modules)
+        execution["continuing_transversal_hours"] = records(continuing_hours)
+    execution["transversal_demand_model"] = "curricula" if curriculum_catalog is not None else ("modules" if modules is not None else "weekly")
     technical_rows, transversal_rows, quarterly = [], [], []
     for quarter in range(1, 5):
         group = calendar.loc[calendar["Trimestre"] == quarter]

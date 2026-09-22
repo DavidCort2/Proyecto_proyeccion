@@ -46,7 +46,7 @@ def test_save_load_preserves_names_rules_and_results(tmp_path, instructors):
     assert saved["rules"] == execution["rules"]
     assert saved["distribution"] == execution["distribution"]
     with sqlite3.connect(db) as connection:
-        assert connection.execute("SELECT count(*) FROM plant_instructors").fetchone()[0] == 19
+        assert connection.execute("SELECT count(*) FROM plant_instructors").fetchone()[0] == 20
         assert connection.execute("SELECT count(*) FROM specialties").fetchone()[0] == len(instructors.attrs["specialties"])
 
 
@@ -113,7 +113,7 @@ def test_manual_specialties_and_export_survive_restart(tmp_path, instructors):
     assert {"Especialidad": "NUEVA", "Área": "Técnica"} in loaded.attrs["specialties"]
     assert saved["technical"][0]["Instructores planta"] == 0
     workbook = pd.ExcelFile(BytesIO(export_planning(loaded, saved)))
-    assert len(pd.read_excel(workbook, sheet_name="Instructores planta")) == 19
+    assert len(pd.read_excel(workbook, sheet_name="Instructores planta")) == 20
     assert pd.read_excel(workbook, sheet_name="Resumen planeacion").iloc[0]["Vigencia"] == 2027
     assert pd.read_excel(workbook, sheet_name="Distribucion").iloc[0]["Especialidad"] == "NUEVA"
 
