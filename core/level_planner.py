@@ -4,6 +4,7 @@ from dataclasses import asdict
 import pandas as pd
 
 from core.config import PlanningRules
+from core.curriculum import schedule_name
 from core.excel_parser import classify_area, normalize_text
 from core.planner import (
     fichas_from_target, growth_requirements, largest_remainder_allocation,
@@ -29,9 +30,9 @@ def validate_profiles(manual: pd.DataFrame, instructors: pd.DataFrame) -> pd.Dat
     if result["Especialidad"].map(classify_area).ne("Técnica").any():
         raise ValueError("Use especialidades técnicas; bilingüismo e integralidad se calculan por separado.")
     result["Nivel"] = result["Nivel"].map(lambda value: {"TECNICO": "Técnico", "TECNOLOGO": "Tecnólogo"}.get(normalize_text(value)))
-    result["Jornada"] = result["Jornada"].map(lambda value: {"DIURNA": "Diurna", "MIXTA": "Mixta", "DIURNA O&P": "Diurna O&P"}.get(normalize_text(value)))
+    result["Jornada"] = result["Jornada"].map(schedule_name)
     if result[["Nivel", "Jornada"]].isna().any().any():
-        raise ValueError("Seleccione Técnico o Tecnólogo y Diurna, Mixta o Diurna O&P en todas las filas.")
+        raise ValueError("Seleccione Técnico o Tecnólogo y Diurna o Mixta en todas las filas.")
     if result.duplicated(PROFILE_COLUMNS).any():
         raise ValueError("Use una sola fila por especialidad, nivel y jornada.")
     for column in MANUAL_COLUMNS[-2:]:

@@ -124,9 +124,9 @@ def test_import_keeps_levels_and_shift_counts():
     from pathlib import Path
     frame = parse_fichas_excel(Path(__file__).resolve().parents[1] / "data/reporteFichas_2026_4.xlsx")
     detail, grouped = project_ficha_carryover(frame, 2026, 4, 2027, {"P&O-MANANA": 7, "P&O-TARDE": 7}, group_by_profile=True)
-    assert grouped["Fichas que pasan"].sum() == 54
+    assert grouped["Fichas que pasan"].sum() == 53
     assert set(grouped["Nivel"]) == {"Técnico", "Tecnólogo"}
-    assert set(grouped["Jornada"]) == {"Diurna", "Mixta", "Diurna O&P"}
+    assert set(grouped["Jornada"]) == {"Diurna", "Mixta"}
     for level in grouped["Nivel"].unique():
         assert grouped.loc[grouped["Nivel"] == level, "Fichas que pasan"].sum() == detail.loc[detail["Nivel"] == level, "Pasa a la vigencia"].sum()
 

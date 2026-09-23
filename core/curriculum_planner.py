@@ -29,7 +29,8 @@ def curriculum_coverage(profiles, catalog):
     for row in profiles.to_dict("records"):
         item = available.get(curriculum_key(row["Especialidad"], row["Jornada"]))
         rows.append({"Programa": row["Especialidad"], "Nivel": row["Nivel"], "Jornada": row["Jornada"],
-                     "Estado": "Lista" if item else "Falta malla", "Trimestres": item["duration"] if item else None})
+                     "Estado": "Lista" if item else "Falta malla", "Trimestres": item["duration"] if item else None,
+                     "Archivo malla": item["source_name"] if item else None})
     return pd.DataFrame(rows)
 
 

@@ -310,7 +310,7 @@ def test_op_schedules_have_automatic_ten_quarter_duration(tmp_path, report_path)
     assert not button(app, "Ejecutar y guardar planeación").disabled
     assert len(app.selectbox) == 0
     assert not app.exception
-    assert projection(app)["Fichas que pasan"].sum() == 54
+    assert projection(app)["Fichas que pasan"].sum() == 53
     assert projection(app)["Fichas que terminan"].sum() == 37
     app.number_input(key="planning_year").set_value(2028).run()
     assert not app.exception

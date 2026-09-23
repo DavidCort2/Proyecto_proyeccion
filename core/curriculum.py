@@ -16,15 +16,16 @@ def name_key(value):
 
 
 def schedule_name(value):
-    value = normalize_text(value)
-    compact = value.replace(" ", "")
-    if compact.startswith(("O&P", "P&O", "DIURNAO&P", "DIURNOO&P")):
-        return "Diurna O&P"
-    if value in {"DIURNA", "DIURNO"} or value.startswith(("DIURNA-", "DIURNO-")):
+    original = value
+    # O&P/P&O identifica el programa, no una jornada. En el reporte aparece
+    # junto a mañana/tarde; se retira antes de interpretar la jornada real.
+    value = re.sub(r"(?:O\s*&\s*P|P\s*&\s*O)", " ", normalize_text(value))
+    value = " ".join(re.sub(r"[-–—]", " ", value).split())
+    if value in {"DIURNA", "DIURNO", "MANANA", "TARDE"} or value.startswith(("DIURNA ", "DIURNO ")):
         return "Diurna"
-    if value in {"MIXTA", "MIXTO"}:
+    if value in {"MIXTA", "MIXTO"} or value.startswith(("MIXTA ", "MIXTO ")):
         return "Mixta"
-    raise ValueError(f"Jornada no reconocida: {value}.")
+    raise ValueError(f"Jornada no reconocida: {original}. Indique la jornada real; O&P/P&O es la abreviatura del programa.")
 
 
 def curriculum_key(program, schedule):

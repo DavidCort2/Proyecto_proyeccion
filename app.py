@@ -144,7 +144,7 @@ def legacy_main() -> None:
             with annual_preview.container():
                 st.markdown("**Referencia inicial de horas anuales de las metas**")
                 st.dataframe(pd.DataFrame(estimates), hide_index=True, use_container_width=True)
-                st.caption("Según las ofertas trimestrales y la duración regular de cada nivel. Esta referencia no incluye continuaciones ni reposiciones. Complete las filas y terminaciones para ver el total del escenario, incluidas O&P de 10 trimestres.")
+                st.caption("Según las ofertas trimestrales y la duración regular de cada nivel. Esta referencia no incluye continuaciones ni reposiciones. Complete las filas y terminaciones para ver el total del escenario.")
         ficha_ready, import_key = True, "manual"
         if instructors is not None:
             ficha_import, import_key, ficha_ready = ficha_inputs(
@@ -186,7 +186,7 @@ def legacy_main() -> None:
                 st.session_state.distribution_base = st.session_state.distribution_base.reindex(columns=MANUAL_COLUMNS)
                 st.session_state.editor_revision += 1
             if source_digest == previous.get("source_digest") and previous.get("distribution_basis") != "quarterly_v1":
-                st.info("Esta planeación se guardó con el método anterior. Revise nivel, jornada y terminaciones trimestrales antes de ejecutar. O&P es diurna de 10 trimestres. Los resultados anteriores se conservan hasta guardar.")
+                st.info("Esta planeación se guardó con el método anterior. Revise nivel, jornada y terminaciones trimestrales antes de ejecutar. Los resultados anteriores se conservan hasta guardar.")
             # Las columnas ausentes de formatos antiguos llegan como float/NaN.
             # El editor necesita texto para aceptar las selecciones del usuario.
             for column in ["Nivel", "Jornada"]:
@@ -197,7 +197,7 @@ def legacy_main() -> None:
                 column_config={
                     "Especialidad": st.column_config.TextColumn(required=True),
                     "Nivel": st.column_config.SelectboxColumn(options=["Técnico", "Tecnólogo"], required=True),
-                    "Jornada": st.column_config.SelectboxColumn(options=["Diurna", "Mixta", "Diurna O&P"], required=True),
+                    "Jornada": st.column_config.SelectboxColumn(options=["Diurna", "Mixta"], required=True),
                     "Fichas que pasan": st.column_config.NumberColumn("Fichas que pasan (editable)", min_value=0, step=1, required=True),
                     "Fichas que terminan": st.column_config.NumberColumn("De esas, terminan en la vigencia", min_value=0, step=1, required=True, help="Solo cuente fichas incluidas en las que pasan. Sirven de referencia para las reposiciones."),
                 },

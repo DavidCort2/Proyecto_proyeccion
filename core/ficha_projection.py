@@ -16,16 +16,14 @@ def quarter_end_date(period: int) -> str:
     return date(year, month, monthrange(year, month)[1]).isoformat()
 
 
-def is_op_schedule(schedule: str) -> bool:
-    value = normalize_text(schedule).replace(" ", "")
-    return value.startswith(("O&P", "P&O", "DIURNAO&P"))
-
-
 def duration_in_quarters(level: str, schedule: str, schedule_overrides: dict[str, int] | None = None) -> int:
     """Compatibilidad del modelo histórico; el flujo curricular no usa estas reglas."""
     level, schedule = normalize_text(level), normalize_text(schedule)
-    if level in {"TECNICO", "TECNOLOGO"} and is_op_schedule(schedule):
-        return 10
+    from core.curriculum import schedule_name
+    try:
+        schedule = normalize_text(schedule_name(schedule))
+    except ValueError:
+        pass  # El modelo histórico admite jornadas definidas explícitamente.
     if level == "TECNICO":
         return 3
     if level == "TECNOLOGO" and (schedule in {"DIURNA", "DIURNO"} or schedule.startswith("DIURNA-")):
@@ -107,19 +105,14 @@ def project_ficha_carryover(
         schedules = []
         for schedule in detail["Jornada"]:
             normalized = normalize_text(schedule)
-            if curriculum_durations is not None:
-                from core.curriculum import schedule_name
+            from core.curriculum import schedule_name
+            try:
                 schedules.append(schedule_name(schedule))
-            elif is_op_schedule(normalized):
-                schedules.append("Diurna O&P")
-            elif normalized == "MIXTA":
-                schedules.append("Mixta")
-            elif normalized in {"DIURNA", "DIURNO"} or normalized.startswith("DIURNA-"):
-                schedules.append("Diurna")
-            elif normalized in (schedule_overrides or {}):
-                schedules.append("Mixta" if schedule_overrides[normalized] == 9 else "Diurna")
-            else:
-                raise ValueError(f"Defina si la jornada '{schedule}' es Diurna o Mixta para calcular sus horas.")
+            except ValueError:
+                if curriculum_durations is None and normalized in (schedule_overrides or {}):
+                    schedules.append("Mixta" if schedule_overrides[normalized] == 9 else "Diurna")
+                else:
+                    raise ValueError(f"Defina si la jornada '{schedule}' es Diurna o Mixta para calcular sus horas.") from None
         detail["Jornada de planeación"] = schedules
         group_columns += ["Nivel", "Jornada de planeación"]
     summary = detail.groupby(group_columns, as_index=False).agg(**{

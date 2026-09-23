@@ -15,7 +15,7 @@ La base está en `data/planeacion.sqlite3`. No requiere servidor de base de dato
 
 ## Preparar y ejecutar
 
-1. En **Mallas y competencias**, cargar uno o varios archivos `PROGRAMA - JORNADA.xlsx`, revisar la vista previa y pulsar **Digitalizar y guardar mallas**. Diurna/Diurno y Mixta/Mixto se normalizan. O&P/P&O requiere su propia malla.
+1. En **Mallas y competencias**, cargar uno o varios archivos `PROGRAMA - JORNADA.xlsx`, revisar la vista previa y pulsar **Digitalizar y guardar mallas**. Diurna/Diurno y Mixta/Mixto se normalizan. O&P/P&O es una abreviatura del programa y no crea una jornada adicional.
 2. Revisar **Todas las competencias**. Los títulos equivalentes comparten una única competencia. La carga selecciona automáticamente las transversales según el tipo del Excel; cuando falta, reconoce los títulos transversales conocidos. Se pueden corregir **Transversal** y el área Bilingüismo/Integralidad con los campos existentes. **Guardar clasificación de competencias** conserva esa corrección en futuras importaciones.
 3. En **Reportes y parámetros**, cargar los reportes para identificar la planta y las fichas, o recuperarlos de la ejecución guardada.
 4. Configurar vigencia, metas totales por nivel (incluyen los aprendices que pasan y los nuevos), aprendices por ficha, horas disponibles de instructores, semanas efectivas y porcentajes de oferta T1–T4. Los porcentajes deben sumar 100 %. La meta ingresada ya debe contener el crecimiento deseado.
@@ -67,7 +67,7 @@ Las horas diurnas y mixtas de referencia no sustituyen las horas curriculares. C
 
 El detalle mensual identifica cada ficha que pasa y crea identificadores de proyección para las nuevas. Solo suma meses a partir de su oferta de ingreso y hasta su terminación. Las semanas trimestrales se reparten por igual: con 12 semanas son 4 por mes. Esta es una distribución indicativa, pues los archivos no contienen fechas diarias, festivos ni horarios de clase. Los totales mensuales deben conciliar con los trimestrales y anuales.
 
-La variante de nombre «Órtesis y prótesis» se vincula con «Prótesis y órtesis». Una ficha O&P/P&O requiere la malla explícita de esa jornada; no hereda la diurna aunque esta tenga diez trimestres. Diurna/Diurno, Mixta/Mixto y O&P/P&O son normalizaciones de nombres, no reglas de duración.
+La variante de nombre «Órtesis y prótesis» se vincula con «Prótesis y órtesis». O&P/P&O identifica el programa, no la jornada: se retira esa abreviatura antes de interpretar el horario. «P&O-mañana» y «P&O-tarde» se reconocen como Diurna; «Mixta O&P» conserva Mixta. No existe la jornada «Diurna O&P», ni una duración especial asociada a la abreviatura. Las fichas se agrupan por programa, nivel y jornada real y utilizan la misma malla correspondiente, sin renombrarla ni duplicarla. El texto original del reporte permanece en el detalle. Si solo aparece la abreviatura, sin horario ni jornada, debe corregirse ese dato del archivo. Diurna y Mixta siguen separadas.
 
 Si falta una malla, se enumeran las combinaciones pendientes antes de proyectar continuaciones. Si el trimestre reportado supera la duración curricular, se identifica la ficha para corregir el reporte o cargar la malla adecuada; no se descarta silenciosamente como terminada. Al reemplazar una malla se recalculan fechas y horas desde las filas originales del reporte, sin usar cantidades o fechas de una ejecución anterior.
 

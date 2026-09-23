@@ -191,14 +191,12 @@ def test_monthly_snapshot_and_excel_match_saved_execution(tmp_path, curriculum_c
     assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 3360
 
 
-@pytest.mark.parametrize("duration", [7, 10, 12])
-def test_op_never_inherits_another_shift_based_on_its_duration(duration):
-    item = {"program": "DESARROLLO Y ADAPTACION DE ORTESIS Y PROTESIS", "schedule": "Diurna", "duration": 10}
-    item["duration"] = duration
+@pytest.mark.parametrize("duration", [2, 7, 10, 12])
+def test_program_abbreviation_does_not_create_a_shift_or_impose_a_duration(duration):
+    item = {"program": "DESARROLLO Y ADAPTACION DE ORTESIS Y PROTESIS", "schedule": "Diurna", "duration": duration}
     catalog = {"curricula": [item]}
     key = curriculum_key("DESARROLLO Y ADAPTACION DE PROTESIS Y ORTESIS", "P&O-tarde")
-    assert key not in curriculum_lookup(catalog)
-    assert key not in duration_lookup(catalog)
-    item["schedule"] = "O&P"
+    assert key == curriculum_key(item["program"], "DIURNO")
     assert curriculum_lookup(catalog)[key] == item
     assert duration_lookup(catalog)[key] == duration
+    assert len(curriculum_lookup(catalog)) == 1

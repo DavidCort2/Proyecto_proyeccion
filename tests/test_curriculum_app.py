@@ -182,6 +182,34 @@ def test_missing_shift_is_visible_and_prevents_execution(app_args):
     assert load_planning(args[0]) is None
 
 
+def test_program_abbreviation_uses_already_saved_diurno_malla_without_reupload(app_args):
+    from core.curriculum_store import import_curricula
+    from test_orthotics_curriculum import MALLA, PROGRAM as ORTHOTICS_PROGRAM, orthotics_rows
+
+    import_curricula(app_args[0], [(MALLA.name, MALLA.read_bytes())])
+    rows = [["Fichas programadas 2026 - Trimestre 4"],
+            ["N°", "Número Ficha", "Tipo Formación", "Jornada", "Trimestre"], [ORTHOTICS_PROGRAM]]
+    for number, row in enumerate(orthotics_rows().to_dict("records"), 1):
+        rows.append([number, row["Ficha"], row["Nivel"], row["Jornada"], row["Trimestre actual"]])
+    pd.DataFrame(rows).to_excel(app_args[2], index=False, header=False)
+    app = AppTest.from_function(automatic_app_for_test, args=app_args, default_timeout=30).run()
+    app.session_state["test_report_upload"] = True
+    app.session_state["test_fichas_upload"] = True
+    app.number_input(key="planning_year").set_value(2027)
+    app.number_input(key="target_technologist").set_value(75).run()
+    assert not app.exception
+    assert not app.error
+    assert not any("Faltan mallas" in item.value for item in app.warning)
+    assert not button(app, "Ejecutar y guardar planeación").disabled
+    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "4764"
+    button(app, "Ejecutar y guardar planeación").click().run()
+    assert not app.exception
+    plan = load_planning(app_args[0])[1]
+    assert {row["Jornada"] for row in plan["distribution"]} == {"Diurna"}
+    assert len(plan["distribution"]) == 1
+    assert len(load_curricula(app_args[0])["curricula"]) == 1
+
+
 def test_reports_required_even_with_mallas_and_no_manual_counts(app_args):
     app = AppTest.from_function(automatic_app_for_test, args=app_args, default_timeout=30).run()
     assert not app.exception

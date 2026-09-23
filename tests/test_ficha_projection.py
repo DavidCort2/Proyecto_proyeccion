@@ -51,7 +51,7 @@ def test_unknown_schedule_and_duplicates_are_not_silently_counted():
         project_ficha_carryover(pd.DataFrame([ficha("Técnico", "Diurna", 1)] * 2), 2026, 4, 2027)
 
 
-@pytest.mark.parametrize("duration,total", [(7, 54), (9, 54)])
+@pytest.mark.parametrize("duration,total", [(7, 53), (9, 53)])
 def test_supplied_report(duration, total):
     path = Path(__file__).resolve().parents[1] / "data/reporteFichas_2026_4.xlsx"
     fichas = parse_fichas_excel(path)
@@ -60,8 +60,8 @@ def test_supplied_report(duration, total):
     detail, summary = project_ficha_carryover(fichas, 2026, 4, 2027, {"P&O-MANANA": duration, "P&O-TARDE": duration})
     assert summary["Fichas que pasan"].sum() == total
     assert summary["Fichas que terminan"].sum() == 37
-    # La regla confirmada de O&P prevalece sobre configuraciones antiguas.
-    assert detail.loc[detail["Jornada"].str.startswith("P&O"), "Duración (trimestres)"].eq(10).all()
+    # El modelo histórico reconoce mañana/tarde como diurna, sin una duración especial por abreviatura.
+    assert detail.loc[detail["Jornada"].str.startswith("P&O"), "Duración (trimestres)"].eq(7).all()
     assert not detail.loc[detail["Nivel"] == "Técnico"].query('`Trimestre actual` >= 3')["Pasa a la vigencia"].any()
 
 

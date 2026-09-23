@@ -88,7 +88,7 @@ def ficha_inputs(previous: dict, planning_year: int, catalog: pd.DataFrame):
             f"{int(summary['Fichas que terminan'].sum())} de ellas terminan durante {planning_year}."
         )
         st.caption(
-            "Duraciones: Técnico 3 trimestres; Tecnólogo diurno 7; Tecnólogo mixto 9; O&P (también P&O) diurna 10. "
+            "Referencias del modelo histórico: Técnico 3 trimestres; Tecnólogo diurno 7; Tecnólogo mixto 9. "
             "El trimestre reportado se considera en curso y la ficha termina al finalizar su último trimestre. "
             "Las que terminan antes del año planeado no pasan."
         )

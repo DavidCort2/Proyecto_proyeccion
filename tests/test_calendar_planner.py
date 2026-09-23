@@ -80,21 +80,22 @@ def test_q4_endings_are_deferred_without_duplicating_active_fichas():
     assert result["growth_rule"]["replacement_fichas"] == 0
 
 
-@pytest.mark.parametrize("schedule", ["O&P", "O&P-mañana", "P&O-tarde", "Diurna O&P"])
-def test_op_always_ten_quarters_and_diurnal_even_with_old_override(schedule):
-    assert duration_in_quarters("Tecnólogo", schedule, {schedule: 7}) == 10
+@pytest.mark.parametrize("schedule", ["O&P-mañana", "P&O-tarde", "Diurna O&P"])
+def test_program_abbreviation_does_not_change_legacy_day_reference(schedule):
+    assert duration_in_quarters("Tecnólogo", schedule) == duration_in_quarters("Tecnólogo", "Diurna")
     frame = pd.DataFrame([{"Ficha": "1", "Especialidad": "SOFTWARE", "Nivel": "Tecnólogo",
-                           "Jornada": schedule, "Trimestre actual": 9}])
+                           "Jornada": schedule, "Trimestre actual": 6}])
     detail, summary = project_ficha_carryover(frame, 2026, 4, 2027, group_by_profile=True)
     assert detail.iloc[0]["Trimestre fin estimado"] == 1
-    assert summary.iloc[0]["Jornada"] == "Diurna O&P"
-    frame.loc[0, "Trimestre actual"] = 10
+    assert summary.iloc[0]["Jornada"] == "Diurna"
+    frame.loc[0, "Trimestre actual"] = 7
     detail, _ = project_ficha_carryover(frame, 2026, 4, 2027, group_by_profile=True)
     assert not detail.iloc[0]["Pasa a la vigencia"]
 
 
 def test_op_new_fichas_use_30_hours_and_remain_active_all_four_quarters():
     result = plan(profile(schedule="Diurna O&P"), target=25)
+    assert {row["Jornada"] for row in result["distribution"]} == {"Diurna"}
     assert [q["Fichas activas"] for q in result["quarterly"]] == [1, 1, 1, 1]
     assert result["center"]["demanda_total_horas_anuales"] == 30 * 48
     assert result["center"]["reposiciones_siguiente_vigencia"] == 0
