@@ -17,6 +17,7 @@ from core.fichas_parser import parse_fichas_excel
 from ui.curriculum_input import curriculum_inputs, resettable_upload_key
 from core.export import export_planning
 from ui.contracting_results import render_contracting_summary, render_contracting_details, render_planning_details
+from ui.system_reset import render_system_reset
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -104,11 +105,14 @@ def render_automatic_planning(path):
     st.caption("Contratación requerida a partir de las horas de las mallas y la cobertura de planta.")
     try:
         revision = database_reset_version(path)
+        reset_complete = st.session_state.pop("_system_reset_complete", False)
         if st.session_state.get("_database_reset_version", 0) != revision:
             st.session_state.clear()
             read_instructors.clear()
             read_fichas.clear()
         st.session_state["_database_reset_version"] = revision
+        if reset_complete:
+            st.success("Sistema limpio. Las metas están en cero y los parámetros recuperaron sus valores iniciales. Puede cargar los reportes y las mallas para comenzar de nuevo.")
         saved = load_planning(path)
         planning_tab, settings_tab, curriculum_tab = st.tabs(["Planeación", "Reportes y parámetros", "Mallas y competencias"])
         with curriculum_tab:
@@ -150,6 +154,8 @@ def render_automatic_planning(path):
                     preview = execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
             except ValueError as exc:
                 problem = str(exc)
+
+        render_system_reset(path)
 
     with planning_tab:
         if preview is not None:

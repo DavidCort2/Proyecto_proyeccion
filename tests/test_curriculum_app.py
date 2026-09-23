@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 
 import pandas as pd
 import pytest
@@ -7,7 +8,8 @@ from streamlit.proto.WidgetStates_pb2 import WidgetState
 from streamlit.testing.v1 import AppTest, element_tree
 
 from core.curriculum_store import load_curricula
-from core.database import load_planning, reset_planning_database
+from core.config import PlanningRules
+from core.database import database_reset_version, load_planning, reset_planning_database
 
 PROGRAM = "ANALISIS Y DESARROLLO DE SOFTWARE"
 
@@ -188,16 +190,28 @@ def test_reports_required_even_with_mallas_and_no_manual_counts(app_args):
     assert app.number_input(key="target_technologist").value == 0
 
 
-def test_database_reset_clears_existing_browser_inputs_and_uploads(app_args):
+@pytest.mark.parametrize("from_button", [False, True])
+def test_database_reset_clears_existing_browser_inputs_and_uploads(app_args, from_button):
     app = open_ready_app(app_args)
+    app.number_input(key="learners_per_ficha").set_value(20)
+    app.number_input(key="weekly_plant_direct_hours").set_value(25.0).run()
     button(app, "Ejecutar y guardar planeación").click().run()
     assert load_planning(app_args[0])
-    reset_planning_database(app_args[0])
-    app.run()
+    if from_button:
+        app.checkbox(key="confirm_system_reset").check().run()
+        button(app, "Formatear sistema").click().run()
+        assert any("Sistema limpio" in item.value for item in app.success)
+    else:
+        reset_planning_database(app_args[0])
+        app.run()
     assert not app.exception
     assert not app.metric
     assert app.number_input(key="target_technical").value == 0
     assert app.number_input(key="target_technologist").value == 0
+    assert app.number_input(key="learners_per_ficha").value == PlanningRules().learners_per_ficha
+    assert app.number_input(key="weekly_plant_direct_hours").value == PlanningRules().weekly_plant_direct_hours
+    assert not app.checkbox(key="confirm_system_reset").value
+    assert button(app, "Formatear sistema").disabled
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert load_planning(app_args[0]) is None
     assert load_curricula(app_args[0])["curricula"] == []
@@ -210,3 +224,42 @@ def test_database_reset_clears_existing_browser_inputs_and_uploads(app_args):
     assert not app.exception
     assert not button(app, "Ejecutar y guardar planeación").disabled
     assert len(load_curricula(app_args[0])["curricula"]) == 2
+
+
+def test_format_requires_confirmation_and_explicit_click(app_args):
+    app = open_ready_app(app_args)
+    button(app, "Ejecutar y guardar planeación").click().run()
+    saved = load_planning(app_args[0])[1]
+    catalog = load_curricula(app_args[0])
+    revision = database_reset_version(app_args[0])
+    assert button(app, "Formatear sistema").disabled
+    app.checkbox(key="confirm_system_reset").check().run()
+    assert not button(app, "Formatear sistema").disabled
+    assert load_planning(app_args[0])[1] == saved
+    assert load_curricula(app_args[0]) == catalog
+    app.checkbox(key="confirm_system_reset").uncheck().run()
+    assert button(app, "Formatear sistema").disabled
+    assert load_planning(app_args[0])[1] == saved
+    assert database_reset_version(app_args[0]) == revision
+
+
+def test_format_failure_is_visible_without_resetting_inputs(app_args, monkeypatch):
+    app = open_ready_app(app_args)
+    button(app, "Ejecutar y guardar planeación").click().run()
+    saved = load_planning(app_args[0])[1]
+    revision = database_reset_version(app_args[0])
+
+    def fail_reset(path):
+        raise sqlite3.OperationalError("Base de datos ocupada")
+
+    monkeypatch.setattr("ui.system_reset.reset_planning_database", fail_reset)
+    app.checkbox(key="confirm_system_reset").check().run()
+    button(app, "Formatear sistema").click().run()
+    assert not app.exception
+    assert any("No fue posible completar la limpieza" in item.value for item in app.error)
+    assert not any("Sistema limpio" in item.value for item in app.success)
+    assert app.number_input(key="target_technologist").value == 100
+    assert app.checkbox(key="confirm_system_reset").value
+    assert load_planning(app_args[0])[1] == saved
+    assert len(load_curricula(app_args[0])["curricula"]) == 2
+    assert database_reset_version(app_args[0]) == revision

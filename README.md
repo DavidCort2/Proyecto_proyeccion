@@ -127,6 +127,8 @@ Guardar una planeación reemplaza los instructores y la ejecución previa en una
 
 Un reinicio completo vacía reportes, ejecución, mallas, resultados y clasificación, y cambia la versión de reinicio de la base. Las sesiones abiertas detectan ese cambio y borran sus archivos y parámetros en memoria al recargar. Las metas iniciales quedan en cero; las capacidades y el tamaño de ficha conservan valores iniciales válidos para evitar divisiones por cero.
 
+Para hacerlo desde la aplicación, abrir **Reportes y parámetros → Limpieza del sistema**, marcar **Confirmo que deseo borrar todos los datos del sistema** y pulsar **Formatear sistema**. La pantalla se reinicia y queda lista para nuevas cargas. El borrado de los datos guardados es permanente; los Excel originales y las descargas en el equipo se conservan.
+
 El Excel contiene distribución, metas, calendario, dotación, continuaciones y capacidad, más **Mallas curriculares**, **Competencias**, **Resultados curriculares** y **Trazabilidad horas**. Esta última muestra cohorte/ficha, edad, competencia, resultado, horas unitarias, fichas, horas requeridas y hoja/fila de origen.
 
 Sus dos primeras hojas son **Contratacion requerida** y **Contratistas y fechas**, con el resumen principal y el detalle individual de inicio y finalización. Las fechas se derivan de los meses de necesidad de cada cupo de la ejecución guardada y conservan el mismo identificador de sus asignaciones mensuales.
