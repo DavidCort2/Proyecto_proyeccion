@@ -8,6 +8,7 @@ import pytest
 
 from core.competency_identity import competency_identity
 from core.config import PlanningRules
+from core.contracting_periods import contracting_headline, individual_contract_periods
 from core.curriculum import curriculum_key, curriculum_lookup, duration_lookup
 from core.curriculum_planner import execute_curriculum_plan, prepare_ficha_import
 from core.curriculum_store import import_curricula, load_curricula, save_competencies
@@ -121,7 +122,7 @@ def test_continuing_ficha_only_receives_remaining_months_and_new_ids_are_stable(
         assert part["Horas requeridas (h/mes)"].tolist() == [expected] * 3
         assert part["Trimestre de formación"].tolist() == [age] * 3
     new = frame.loc[frame["Tipo ficha"] == "Nueva proyectada"]
-    assert new["Ficha"].nunique() == 4
+    assert new["Ficha"].nunique() == 2
     assert not frame.duplicated(["Ficha", "Mes número"]).any()
     for quarter in plan["quarterly"]:
         months = [row for row in plan["monthly"] if row["Trimestre"] == quarter["Trimestre"]]
@@ -155,15 +156,15 @@ def test_free_capacity_of_other_profile_cannot_cover_a_deficit(tmp_path):
     catalog = import_curricula(tmp_path / "db.sqlite3", [(PROGRAM + " - DIURNA.xlsx", malla([20, 20, 20]))])
     _, plan = run_plan(catalog, frame=ficha_frame(day_age=3).iloc[:1], target=50)
     # Planta libre en Bilingüismo e Integralidad no cubre el déficit técnico.
-    assert all(row["Contratistas requeridos"] == 1 for row in plan["monthly"])
+    assert [row["Contratistas requeridos"] for row in plan["monthly"]] == [1] * 9 + [0] * 3
     assert plan["summary"]["pico_contratistas_total"] == 1
     assert all(row["Horas asignadas (h/mes)"] == 0 for row in plan["monthly_instructors"] if row["Área"] != "Técnica")
 
 
 def test_fractional_weeks_conserve_hours_and_assignments(curriculum_catalog):
     _, plan = run_plan(curriculum_catalog, rules=PlanningRules(weeks_per_quarter=10, intake_weights=(100, 0, 0, 0)))
-    assert math.fsum(row["Horas requeridas"] for row in plan["monthly"]) == pytest.approx(4480)
-    assert math.fsum(row["Horas asignadas (h/mes)"] for row in plan["monthly_assignments"]) == pytest.approx(4480)
+    assert math.fsum(row["Horas requeridas"] for row in plan["monthly"]) == pytest.approx(2800)
+    assert math.fsum(row["Horas asignadas (h/mes)"] for row in plan["monthly_assignments"]) == pytest.approx(2800)
     assert all(row["Horas asignadas (h/mes)"] <= row["Capacidad (h/mes)"] + 1e-8 for row in plan["monthly_instructors"])
 
 
@@ -175,11 +176,16 @@ def test_monthly_snapshot_and_excel_match_saved_execution(tmp_path, curriculum_c
     assert recovered[1]["monthly_fichas"] == plan["monthly_fichas"]
     assert recovered[1]["contract_windows"] == plan["contract_windows"]
     book = load_workbook(BytesIO(export_planning(*recovered)), data_only=True)
+    assert book.sheetnames[:2] == ["Contratacion requerida", "Contratistas y fechas"]
+    assert dict(zip(next(book["Contratacion requerida"].values), list(book["Contratacion requerida"].values)[1])) == contracting_headline(plan)
+    sheet = book["Contratistas y fechas"]
+    exported_periods = [dict(zip(next(sheet.values), row)) for row in list(sheet.values)[1:]]
+    assert exported_periods == individual_contract_periods(plan)
     assert {"Resumen mensual", "Horas mensuales por ficha", "Dotacion mensual por perfil", "Capacidad mensual instructores", "Asignacion mensual de horas", "Supuestos mensuales"}.issubset(book.sheetnames)
     assert {"Periodos de contratacion", "Contratacion por trimestre", "Picos por perfil", "Excesos y reducciones", "Criterio de contratacion"}.issubset(book.sheetnames)
     sheet = book["Horas mensuales por ficha"]
     column = [cell.value for cell in sheet[1]].index("Horas requeridas (h/mes)")
-    assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 5376
+    assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 3360
 
 
 def test_op_alias_uses_only_a_confirmed_ten_quarter_malla():

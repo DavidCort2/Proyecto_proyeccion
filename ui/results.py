@@ -9,8 +9,8 @@ def render_results(instructors: pd.DataFrame, execution: dict) -> None:
     st.subheader(f"Última ejecución guardada · Vigencia {execution['planning_year']}")
     st.caption(f"Archivo: {execution['source_name']} · Guardado (UTC): {execution['saved_at']} · Base de datos: data/planeacion.sqlite3")
     center, summary = execution["center"], execution["summary"]
-    curricular = execution.get("planning_mode") in {"curricula_v1", "curricula_v2", "curricula_v3"}
-    plant_only = execution.get("planning_mode") == "curricula_v3"
+    curricular = execution.get("planning_mode") in {"curricula_v1", "curricula_v2", "curricula_v3", "curricula_v4"}
+    plant_only = execution.get("planning_mode") in {"curricula_v3", "curricula_v4"}
     columns = st.columns(4)
     columns[0].metric("Fichas nuevas", center["fichas_nuevas"])
     columns[1].metric("Fichas que pasan", center["fichas_que_pasan"])

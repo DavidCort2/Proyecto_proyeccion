@@ -93,13 +93,17 @@ def hours_by_profile(distribution: pd.DataFrame, rules: PlanningRules) -> pd.Dat
     return result
 
 
-def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year, source_name, source_digest):
+def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year, source_name, source_digest, *, curricular_import=None):
     errors = rules.validate()
     if errors:
         raise ValueError(" ".join(errors))
     if instructors.empty or not 2000 <= planning_year <= 2200:
         raise ValueError("Revise el reporte de instructores y la vigencia a planear.")
-    distribution, levels, minimums = project_by_level(manual, instructors, targets, rules)
+    if curricular_import is None:
+        distribution, levels, minimums = project_by_level(manual, instructors, targets, rules)
+    else:
+        from core.curriculum_intakes import project_curricular_intakes
+        distribution, levels, minimums = project_curricular_intakes(manual, curricular_import, targets, rules)
     hours = hours_by_profile(distribution, rules)
     totals = distribution.groupby("Especialidad", as_index=False)[["Fichas nuevas", "Fichas que pasan", "Fichas que terminan"]].sum()
     demands = hours.groupby("Especialidad")["Técnicas (h/sem)"].sum().to_dict()
@@ -129,20 +133,33 @@ def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year
         "cupos_teoricos": new * rules.learners_per_ficha,
         "holgura_cupos": new * rules.learners_per_ficha - target_total,
     }
-    return {
+    execution = {
         "planning_year": planning_year, "source_name": source_name, "source_digest": source_digest,
         "targets_by_level": targets, "target_learners": target_total,
         "continuing_fichas": center["fichas_que_pasan"], "rules": asdict(rules),
         "distribution": records(distribution), "distribution_basis": "level_schedule_v1",
         "levels": records(levels), "hours": records(hours), "center": center,
-        "growth_rule": {"percent": 5, "basis": "per_specialty_and_level", "rows": minimums,
-                        "new_fichas": sum(row["Mínimo de fichas nuevas"] for row in minimums),
-                        "replacement_fichas": sum(row["Fichas que terminan"] for row in minimums),
-                        "growth_fichas": sum(row["Crecimiento mínimo (5 %)"] for row in minimums)},
         "technical": records(technical), "transversal": records(transversal),
         "summary": staffing_summary(technical, transversal, rules),
         "resources": records(plant_resource_summary(instructors, rules)),
     }
+    if curricular_import is None:
+        execution["growth_rule"] = {"percent": 5, "basis": "per_specialty_and_level", "rows": minimums,
+                                    "new_fichas": sum(row["Mínimo de fichas nuevas"] for row in minimums),
+                                    "replacement_fichas": sum(row["Fichas que terminan"] for row in minimums),
+                                    "growth_fichas": sum(row["Crecimiento mínimo (5 %)"] for row in minimums)}
+    else:
+        from core.curriculum_intakes import TARGET_BASIS
+        execution["target_basis"] = TARGET_BASIS
+        execution["intake_allocation"] = minimums
+        execution["intake_basis"] = (
+            "La meta incluye aprendices de las fichas que pasan y de las nuevas, contados una sola vez. "
+            "Las nuevas cubren el saldo dividido entre aprendices por ficha, redondeado por nivel. "
+            "Los cupos se distribuyen según la participación de cada programa y jornada en el reporte. "
+            "La meta ingresada ya contiene el crecimiento deseado; no se añade otro 5 % ni reposiciones fuera de ella. "
+            "Los aprendices que pasan se estiman con el tamaño configurado de ficha porque el reporte no incluye matrícula real."
+        )
+    return execution
 
 
 def execute_level_plan(instructors, manual, rules, targets, planning_year, source_name, source_digest,
@@ -158,7 +175,8 @@ def execute_level_plan(instructors, manual, rules, targets, planning_year, sourc
     effective = manual.copy()
     # Las fichas que finalizan en T4 se reemplazan en T1 de la siguiente vigencia.
     effective["Fichas que terminan"] = endings[["Terminan T1", "Terminan T2", "Terminan T3"]].sum(axis=1)
-    execution = _execute_unscheduled_plan(instructors, effective, rules, targets, planning_year, source_name, source_digest)
+    execution = _execute_unscheduled_plan(instructors, effective, rules, targets, planning_year, source_name, source_digest,
+                                         curricular_import=ficha_import if curriculum_catalog is not None else None)
     distribution = pd.DataFrame(execution["distribution"])
     distribution["Fichas que terminan"] = manual["Fichas que terminan"]
     execution = apply_calendar(execution, instructors, distribution, endings, rules, modules=transversal_modules,

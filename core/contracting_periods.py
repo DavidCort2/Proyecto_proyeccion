@@ -24,6 +24,44 @@ def contracting_windows(counts):
     return [(start, end, count) for (start, end), count in sorted(intervals.items())]
 
 
+def contracting_headline(execution):
+    """Total simultáneo y desglose del mismo trimestre para no sumar picos distintos."""
+    quarters = execution["contracting_quarterly"]
+    peak = max(quarters, key=lambda row: (row["Contratistas requeridos"], row["Horas a contratar"], -row["Trimestre"]))
+    total = peak["Contratistas requeridos"]
+    periods = [f"T{row['Trimestre']}" for row in quarters if total and row["Contratistas requeridos"] == total]
+    return {"Vigencia": execution["planning_year"], "Total de contratistas requeridos": total,
+            "Trimestre del pico máximo": ", ".join(periods) or "Sin contratación",
+            "Trimestre del desglose": peak["Trimestre"] if total else None,
+            "Técnicos en el pico": peak["Contratistas técnicos"],
+            "Transversales en el pico": peak["Contratistas transversales"]}
+
+
+def individual_contract_periods(execution):
+    """Una fila por cupo proyectado y período continuo, vinculada a su carga mensual."""
+    groups = defaultdict(list)
+    for row in execution["monthly_instructors"]:
+        if row["Tipo"] == "Contratista proyectado":
+            groups[row["Instructor ID"]].append(row)
+    result, numbers = [], Counter()
+    ordered = sorted(groups.items(), key=lambda pair: (pair[1][0]["Área"] != "Técnica",
+                     pair[1][0]["Área"], pair[1][0]["Perfil"], int(pair[0].rsplit(" | ", 1)[-1])))
+    for identifier, rows in ordered:
+        sample = rows[0]
+        kind = "Técnico" if sample["Área"] == "Técnica" else "Transversal"
+        numbers[kind] += 1
+        name = f"Instructor {kind.lower()} {numbers[kind]:03d}"
+        months = {row["Mes número"] for row in rows}
+        for start, end, _ in contracting_windows([int(month in months) for month in range(1, 13)]):
+            year = execution["planning_year"]
+            result.append({"Instructor proyectado": name, "Tipo": kind, "Perfil": sample["Perfil"],
+                           "Requerido desde": date(year, start, 1).isoformat(),
+                           "Requerido hasta": date(year, end, monthrange(year, end)[1]).isoformat(),
+                           "Meses": end - start + 1, "Capacidad (h/sem)": sample["Capacidad (h/sem)"],
+                           "Instructor ID": identifier})
+    return result
+
+
 def apply_contracting_periods(execution, rules):
     groups = defaultdict(list)
     for row in execution["monthly_staffing"]:

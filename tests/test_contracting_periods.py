@@ -4,7 +4,7 @@ from openpyxl import Workbook, load_workbook
 import pytest
 
 from core.config import PlanningRules
-from core.contracting_periods import contracting_windows
+from core.contracting_periods import contracting_windows, contracting_headline, individual_contract_periods
 from core.curriculum_planner import execute_curriculum_plan, prepare_ficha_import
 from core.curriculum_store import import_curricula
 from core.database import load_planning, save_planning
@@ -47,6 +47,16 @@ def test_transversal_peak_reduces_as_same_fichas_advance_and_profiles_peak_separ
     assert plan["summary"]["pico_contratistas_total"] == 27  # No suma los dos picos separados (54).
     assert plan["summary"]["trimestres_pico_total"] == [1, 4]
     assert plan["summary"]["trimestres_pico_transversal"] == [1]
+    headline = contracting_headline(plan)
+    assert headline["Total de contratistas requeridos"] == 27
+    assert headline["Trimestre del pico máximo"] == "T1, T4"
+    assert headline["Técnicos en el pico"] + headline["Transversales en el pico"] == 27
+    detail = individual_contract_periods(plan)
+    transversal = [row for row in detail if row["Tipo"] == "Transversal"]
+    assert len(transversal) == 27
+    assert sum(row["Requerido hasta"] == "2027-03-31" for row in transversal) == 14
+    assert sum(row["Requerido hasta"] == "2027-06-30" for row in transversal) == 11
+    assert sum(row["Requerido hasta"] == "2027-09-30" for row in transversal) == 2
     windows = [row for row in plan["contract_windows"] if row["Área"] == "Integralidad"]
     assert [(row["Contratistas"], row["Inicio"], row["Fin"]) for row in windows] == [
         (14, "2027-01-01", "2027-03-31"), (11, "2027-01-01", "2027-06-30"), (2, "2027-01-01", "2027-09-30")]
@@ -109,6 +119,8 @@ def test_sufficient_plant_needs_no_contracting_periods(tmp_path):
     assert plan["summary"]["pico_contratistas_total"] == 0
     assert plan["summary"]["trimestres_pico_total"] == []
     assert plan["summary"]["meses_contratista_requeridos"] == 0
+    assert individual_contract_periods(plan) == []
+    assert contracting_headline(plan)["Trimestre del pico máximo"] == "Sin contratación"
     assert all(row["Tipo"] == "Planta" for row in plan["monthly_instructors"])
     save_planning(tmp_path / "plan.sqlite3", staff, plan)
     assert export_planning(*load_planning(tmp_path / "plan.sqlite3"))
@@ -131,3 +143,19 @@ def test_decimal_curricular_hours_do_not_create_a_phantom_contractor(tmp_path):
     assert all(row["contratistas_totales"] == 1 for row in plan["quarterly"])
     assert all(row["Contratistas requeridos"] == 1 for row in plan["monthly"])
     assert plan["summary"]["contratistas_totales"] == plan["summary"]["pico_contratistas_total"] == 1
+
+
+def test_individual_dates_follow_actual_projected_capacity_and_split_gaps(tmp_path):
+    # Planta 32: déficit semanal 8, 0, 8, 0 => un cupo en T1 y otro período en T3.
+    catalog = import_curricula(tmp_path / "db.sqlite3", [(PROGRAM + " - DIURNA.xlsx", malla([40, 20, 40, 20]))])
+    _, plan = run_plan(catalog, frame=ficha_frame(day_age=4).iloc[:1], target=25)
+    periods = individual_contract_periods(plan)
+    assert [(row["Requerido desde"], row["Requerido hasta"]) for row in periods] == [
+        ("2027-01-01", "2027-03-31"), ("2027-07-01", "2027-09-30")]
+    assert len({row["Instructor ID"] for row in periods}) == 1
+    assert len({row["Instructor proyectado"] for row in periods}) == 1
+    assert sum(row["Meses"] for row in periods) == 6
+    for month in range(1, 13):
+        active = [row for row in periods if int(row["Requerido desde"][5:7]) <= month <= int(row["Requerido hasta"][5:7])]
+        expected = [row for row in plan["monthly_instructors"] if row["Mes número"] == month and row["Tipo"] == "Contratista proyectado"]
+        assert {row["Instructor ID"] for row in active} == {row["Instructor ID"] for row in expected}

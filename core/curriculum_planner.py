@@ -66,6 +66,8 @@ def apply_curriculum_hours(calendar, catalog, imported, year, rules):
                         for ficha, age in continuing if 1 <= age + q - 1 <= curriculum["duration"]]
             if sum(count for _, _, count, new in cohorts if not new) != int(period["Continuaciones activas"]):
                 raise ValueError(f"{first['Especialidad']} · T{q}: las terminaciones no coinciden con la duración de la malla.")
+            if sum(count for _, _, count, _ in cohorts) != int(period["Fichas activas"]):
+                raise ValueError(f"{first['Especialidad']} · T{q}: las cohortes no coinciden con las fichas activas.")
             totals = {"técnicas": 0.0, "bilingüismo": 0.0, "integralidad": 0.0}
             new_hours = 0.0
             for label, age, count, new in cohorts:
@@ -102,7 +104,7 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
     execution = execute_level_plan(instructors, manual, rules, targets, year, source_name, source_digest,
                                    ficha_import=imported, curriculum_catalog=catalog)
     execution["ficha_import"] = imported
-    execution["planning_mode"] = "curricula_v3"
+    execution["planning_mode"] = "curricula_v4"
     execution["contracting_basis"] = "La capacidad disponible incluye únicamente planta. La contratación se proyecta completa por perfil y por período según las horas de las mallas."
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods

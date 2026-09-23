@@ -45,6 +45,30 @@ def _connect(path: str | Path) -> sqlite3.Connection:
     return connection
 
 
+def database_reset_version(path: str | Path) -> int:
+    if not Path(path).exists():
+        return 0
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        return connection.execute("PRAGMA user_version").fetchone()[0]
+
+
+def reset_planning_database(path: str | Path) -> dict[str, int]:
+    """Vacía los datos de la aplicación e invalida las sesiones abiertas."""
+    from core.curriculum_store import SCHEMA as CURRICULUM_SCHEMA
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    tables = ("execution", "instructors", "specialties", "curriculum_outcomes", "curricula", "competencies", "curriculum_metadata")
+    with closing(_connect(path)) as connection:
+        connection.executescript(SCHEMA + CURRICULUM_SCHEMA)
+        revision = connection.execute("PRAGMA user_version").fetchone()[0] + 1
+        connection.execute("PRAGMA secure_delete = ON")
+        with connection:
+            for table in tables:
+                connection.execute(f'DELETE FROM "{table}"')
+            connection.execute(f"PRAGMA user_version = {revision}")
+        connection.execute("VACUUM")
+        return {table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in tables}
+
+
 def save_planning(path: str | Path, instructors: pd.DataFrame, execution: dict) -> dict:
     """Reemplaza toda la carga; un fallo revierte también los borrados."""
     if instructors.empty:

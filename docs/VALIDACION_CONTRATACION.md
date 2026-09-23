@@ -1,5 +1,7 @@
 # Contratación completa por períodos
 
+> Revisión histórica de `curricula_v3`. El presupuesto de fichas cambió en `curricula_v4`: véase `VALIDACION_META_Y_REINICIO.md`. Los resultados de 85 contratistas documentados aquí correspondían al modelo anterior y no se utilizan para calcular nuevas planeaciones.
+
 La versión `curricula_v3` descuenta exclusivamente la capacidad de planta. El reporte de instructores permanece como origen, pero sus contratistas actuales no cubren la demanda proyectada ni se muestran como personal disponible. Las horas de cada ficha siguen su malla y trimestre de formación.
 
 ## Comprobación con la base local
@@ -21,7 +23,7 @@ Estos valores provienen de las horas de las mallas, las continuaciones, las repo
 
 ## Controles
 
-La suite completa terminó con **166 pruebas aprobadas**.
+La suite completa terminó con **167 pruebas aprobadas**.
 
 - Se verificaron 1362 registros ficha/mes y 4512 asignaciones. Cada ficha recibe todas sus horas y ninguna asignación supera la capacidad del instructor.
 - Los meses concilian con los trimestres y las 157764 horas anuales. Con 12 semanas trimestrales, cada mes representa 4 semanas efectivas.
@@ -30,6 +32,14 @@ La suite completa terminó con **166 pruebas aprobadas**.
 - Se cubren escenarios sin déficit, sin planta, entradas en cualquiera de las cuatro ofertas y períodos separados por trimestres sin necesidad.
 - El redondeo mensual y trimestral comparte la misma regla: los residuos de sumar horas decimales no crean un contratista extra cuando la capacidad ya cubre la demanda.
 - La exportación y la recuperación desde SQLite conservan los períodos calculados. La interfaz principal presenta la contratación completa, sin el apartado de contratistas actuales ni adicionales.
+
+## Presentación de los resultados
+
+La pestaña **Planeación** abre con un único resumen: total simultáneo de contratistas, trimestre del pico máximo y desglose técnico/transversal del mismo trimestre. En la validación real muestra 85, T4, 59 y 26, respectivamente. Los reportes y campos editables se encuentran en **Reportes y parámetros**; las mallas conservan su propia pestaña.
+
+Debajo del resumen, las tablas están contraídas inicialmente. **Contratistas requeridos y fecha de finalización** identifica cada cupo como instructor técnico o transversal, su perfil y las fechas desde/hasta. Se verificaron las fechas de los 85 cupos reales contra sus registros mensuales de capacidad. Un cupo con necesidad en T1 y T3 tiene dos períodos separados, sin contratación en T2.
+
+Las dos primeras hojas del Excel son **Contratacion requerida** y **Contratistas y fechas**. Se comprueba que reproduzcan el resumen y los períodos individuales de la instantánea guardada. Cambiar los parámetros muestra una vista previa identificada y exige guardar para habilitar su descarga; la ejecución anterior se descarga desde un desplegable separado. Las pruebas verifican que el resumen no se duplique, que los datos de contratistas históricos no se muestren y que todas las tablas del resultado estén dentro de desplegables.
 
 ## Ejemplo de necesidad transversal decreciente
 

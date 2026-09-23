@@ -11,12 +11,12 @@ import streamlit as st
 
 from core.config import PlanningRules
 from core.curriculum_planner import curriculum_coverage, execute_curriculum_plan, prepare_ficha_import
-from core.database import load_planning, save_planning
+from core.database import database_reset_version, load_planning, save_planning
 from core.excel_parser import parse_instructors_excel
 from core.fichas_parser import parse_fichas_excel
-from ui.curriculum_input import curriculum_inputs
-from ui.results import render_results
-from ui.contracting_results import render_contracting
+from ui.curriculum_input import curriculum_inputs, resettable_upload_key
+from core.export import export_planning
+from ui.contracting_results import render_contracting_summary, render_contracting_details, render_planning_details
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -37,10 +37,11 @@ def parameters(previous):
     saved_targets = previous.get("targets_by_level", {})
     targets = {
         "Técnico": c2.number_input("Meta de aprendices · Técnico", min_value=0,
-                                   value=saved_targets.get("Técnico", previous.get("target_learners", 500)), step=25, key="target_technical"),
+                                   value=saved_targets.get("Técnico", previous.get("target_learners", 0)), step=25, key="target_technical"),
         "Tecnólogo": c3.number_input("Meta de aprendices · Tecnólogo", min_value=0,
                                      value=saved_targets.get("Tecnólogo", 0), step=25, key="target_technologist"),
     }
+    st.caption("La meta es el total de aprendices de la vigencia: incluye fichas que pasan y nuevas. Ingrese la meta final con su crecimiento incluido. Las nuevas cubren únicamente el saldo pendiente.")
     with st.expander("Parámetros de cálculo", expanded=True):
         c1, c2, c3 = st.columns(3)
         learners = c1.number_input("Aprendices por ficha", min_value=1, value=int(defaults["learners_per_ficha"]), key="learners_per_ficha")
@@ -56,9 +57,9 @@ def parameters(previous):
                                 value=float(defaults["mixed_weekly_hours_per_ficha"]), key="mixed_weekly_hours_per_ficha")
         st.caption("Las horas de formación provienen de cada resultado de la malla. Las jornadas de referencia permiten revisar diferencias; no rellenan ni sustituyen horas curriculares. Horas trimestrales = horas semanales de la malla × semanas efectivas.")
         offers = st.columns(4)
-        weights = tuple(int(offers[q].number_input(f"Oferta adicional T{q + 1} (%)", min_value=0, max_value=100,
+        weights = tuple(int(offers[q].number_input(f"Ingresos en oferta T{q + 1} (%)", min_value=0, max_value=100,
                             value=int(defaults["intake_weights"][q]), key=f"intake_weight_{q}")) for q in range(4))
-        st.caption("Los porcentajes deben sumar 100 %. Distribuyen el saldo de la meta y el crecimiento mínimo del 5 %. Las reposiciones se abren en el trimestre siguiente a la terminación.")
+        st.caption("Los porcentajes deben sumar 100 %. Distribuyen todas las fichas nuevas calculadas para la meta, incluidas las que reemplazan salidas. No se agregan fichas ni otro 5 % por fuera de ese total.")
     # Los campos históricos de horas transversales no participan en el modelo curricular.
     rules = PlanningRules(int(learners), weekly, 0.0, 0.0, plant, contract, mixed, 0.0, 0.0, int(weeks), weights)
     return int(year), {level: int(value) for level, value in targets.items()}, rules
@@ -69,10 +70,10 @@ def instructor_source(saved):
     options = (["Usar datos guardados"] if saved else []) + ["Cargar un archivo Excel"]
     if st.session_state.get("source_mode") not in options:
         st.session_state.source_mode = options[0]
-    mode = st.radio("Origen de los instructores", options, horizontal=True, key="source_mode")
+    mode = st.radio("Origen del reporte de planta", options, horizontal=True, key="source_mode")
     if mode == "Usar datos guardados":
         return saved[0], previous["source_name"], previous["source_digest"]
-    upload = st.file_uploader("Reporte de instructores (.xlsx)", type=["xlsx"], key="report_upload")
+    upload = st.file_uploader("Reporte para identificar la planta (.xlsx)", type=["xlsx"], key=resettable_upload_key("report_upload"))
     if upload is None:
         return None, "", ""
     content = upload.getvalue()
@@ -87,7 +88,7 @@ def ficha_source(previous):
     mode = st.radio("Origen de las fichas", options, horizontal=True, key="fichas_mode")
     if mode == "Usar reporte de fichas guardado":
         return pd.DataFrame(stored["rows"]), stored["source_name"], stored["source_digest"], stored["report_year"], stored["report_quarter"]
-    upload = st.file_uploader("Reporte de fichas (.xlsx)", type=["xlsx"], key="fichas_upload")
+    upload = st.file_uploader("Reporte de fichas (.xlsx)", type=["xlsx"], key=resettable_upload_key("fichas_upload"))
     if upload is None:
         return None
     content = upload.getvalue()
@@ -100,91 +101,111 @@ def ficha_source(previous):
 def render_automatic_planning(path):
     st.set_page_config(page_title="Planeación Indicativa SENA", page_icon="📊", layout="wide")
     st.title("Planeación Indicativa")
-    st.caption("Cargue los reportes y las mallas. Configure metas, ofertas y competencias transversales para calcular las horas e instructores por trimestre.")
+    st.caption("Contratación requerida a partir de las horas de las mallas y la cobertura de planta.")
     try:
+        revision = database_reset_version(path)
+        if st.session_state.get("_database_reset_version", 0) != revision:
+            st.session_state.clear()
+            read_instructors.clear()
+            read_fichas.clear()
+        st.session_state["_database_reset_version"] = revision
         saved = load_planning(path)
-        planning_tab, curriculum_tab = st.tabs(["Planeación", "Mallas y competencias"])
+        planning_tab, settings_tab, curriculum_tab = st.tabs(["Planeación", "Reportes y parámetros", "Mallas y competencias"])
         with curriculum_tab:
             catalog, catalog_ready = curriculum_inputs(path)
     except (ValueError, sqlite3.Error, OSError) as exc:
         st.error(f"No fue posible abrir los datos: {exc}")
         return
     previous = saved[1] if saved else {}
-    preview = None
-    with planning_tab:
-        with st.container(border=True):
-            st.subheader("1. Reportes de origen")
+    preview, problem = None, None
+    with settings_tab:
+        st.subheader("Reportes de origen")
+        try:
+            instructors, source_name, source_digest = instructor_source(saved)
+            fichas = ficha_source(previous)
+        except Exception as exc:
+            problem = f"No fue posible leer los reportes: {exc}"
+            st.error(problem)
+            instructors, fichas = None, None
+        if instructors is not None:
+            st.info(f"{source_name} · {int(instructors['Es planta'].sum())} instructores de planta para cubrir la demanda.")
+            with st.expander("Revisar la planta del reporte"):
+                st.dataframe(instructors.loc[instructors["Es planta"], ["Área", "Especialidad", "Nombre", "Documento"]],
+                             hide_index=True, use_container_width=True)
+        st.subheader("Metas y parámetros")
+        year, targets, rules = parameters(previous)
+        for error in rules.validate():
+            st.error(error)
+        if instructors is not None and fichas is not None and not rules.validate():
             try:
-                instructors, source_name, source_digest = instructor_source(saved)
-                fichas = ficha_source(previous)
-            except Exception as exc:
-                st.error(f"No fue posible leer los reportes: {exc}")
-                instructors, fichas = None, None
-            if instructors is not None:
-                st.info(f"{source_name} · {int(instructors['Es planta'].sum())} instructores de planta para cubrir la demanda.")
-                with st.expander("Revisar los instructores del archivo antes de ejecutar"):
-                    st.dataframe(instructors.loc[instructors['Es planta']], hide_index=True, use_container_width=True)
-            st.subheader("2. Metas y parámetros")
-            year, targets, rules = parameters(previous)
-            for error in rules.validate():
-                st.error(error)
-            if previous and previous.get("planning_mode") != "curricula_v3":
-                st.info("La ejecución guardada usa el método anterior. Al ejecutar se calculará la contratación completa descontando solo planta, con sus períodos y reducciones según las mallas.")
-            st.subheader("3. Proyección automática")
-            if not catalog_ready:
-                st.info("Complete y guarde las mallas y su clasificación en la pestaña «Mallas y competencias».")
-            if instructors is None or fichas is None:
-                st.info("Se necesitan ambos reportes: instructores y fichas actuales.")
-            elif not rules.validate():
-                try:
-                    frame, name, digest, report_year, report_quarter = fichas
-                    imported = prepare_ficha_import(frame, instructors, catalog, year, name, digest, report_year, report_quarter)
-                    st.caption(f"{name} · {report_year}-T{report_quarter} · {len(frame)} fichas. Las duraciones disponibles se toman de las mallas; el trimestre cursado determina las horas pendientes.")
+                frame, name, digest, report_year, report_quarter = fichas
+                imported = prepare_ficha_import(frame, instructors, catalog, year, name, digest, report_year, report_quarter)
+                coverage = curriculum_coverage(pd.DataFrame(imported["summary"]), catalog)
+                with st.expander("Fichas de origen y cobertura curricular"):
+                    st.caption(f"{name} · {report_year}-T{report_quarter} · {len(frame)} fichas.")
                     st.dataframe(pd.DataFrame(imported["summary"]), hide_index=True, use_container_width=True)
-                    coverage = curriculum_coverage(pd.DataFrame(imported["summary"]), catalog)
-                    missing = coverage.loc[coverage["Estado"] == "Falta malla"]
-                    if not missing.empty:
-                        st.warning("Hay programas o jornadas del reporte sin malla. Cargue las mallas indicadas para cubrir toda la planeación.")
-                        st.dataframe(missing, hide_index=True, use_container_width=True)
-                    with st.expander("Detalle de las fichas y cobertura curricular"):
-                        st.dataframe(coverage, hide_index=True, use_container_width=True)
-                        st.dataframe(pd.DataFrame(imported["detail"]), hide_index=True, use_container_width=True)
-                    if catalog_ready:
-                        preview = execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
-                        center, summary = preview["center"], preview["summary"]
-                        st.dataframe(pd.DataFrame(preview["levels"]), hide_index=True, use_container_width=True)
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Total de horas al año", f"{center['demanda_total_horas_anuales']:g}")
-                        c2.metric("Fichas nuevas proyectadas", center["fichas_nuevas"])
-                        c3.metric("Fichas que pasan", center["fichas_que_pasan"])
-                        render_contracting(preview)
-                        st.markdown("**Demanda y contratación por mes**")
-                        st.caption(preview["monthly_basis"])
-                        st.dataframe(pd.DataFrame(preview["monthly"]), hide_index=True, use_container_width=True)
-                        with st.expander("Horas mensuales de cada ficha"):
-                            st.dataframe(pd.DataFrame(preview["monthly_fichas"]), hide_index=True, use_container_width=True)
-                        with st.expander("Capacidad mensual por perfil e instructor"):
-                            st.dataframe(pd.DataFrame(preview["monthly_staffing"]), hide_index=True, use_container_width=True)
-                            st.dataframe(pd.DataFrame(preview["monthly_instructors"]), hide_index=True, use_container_width=True)
-                        with st.expander("Propuesta de distribución de horas entre instructores y fichas"):
-                            st.dataframe(pd.DataFrame(preview["monthly_assignments"]), hide_index=True, use_container_width=True)
-                        with st.expander("Ofertas, fichas activas y horas por programa"):
-                            st.dataframe(pd.DataFrame(preview["calendar"]), hide_index=True, use_container_width=True)
-                        with st.expander("Comprobar las horas por competencia y resultado"):
-                            st.dataframe(pd.DataFrame(preview["curriculum_hours"]), hide_index=True, use_container_width=True)
-                        st.success("Planeación lista: horas calculadas con las mallas de cada programa y jornada.")
-                except ValueError as exc:
-                    st.warning(str(exc))
-            if st.button("Ejecutar y guardar planeación", type="primary", use_container_width=True, disabled=preview is None):
-                try:
-                    save_planning(path, instructors, preview)
-                    saved = load_planning(path)
-                    st.success("Planeación guardada. Las mallas y las competencias permanecen disponibles para las próximas vigencias.")
-                except (ValueError, OSError, sqlite3.Error) as exc:
-                    st.error(f"No fue posible guardar la planeación: {exc}")
-        if saved:
-            current = {k: v for k, v in saved[1].items() if k != "saved_at"}
-            if preview is None or json.dumps(preview, sort_keys=True) != json.dumps(current, sort_keys=True):
-                st.warning("Hay datos pendientes de ejecutar. Los resultados y la descarga corresponden a la última ejecución guardada.")
-            if saved[1].get("planning_mode") == "curricula_v3":
-                render_results(*saved)
+                    st.dataframe(coverage, hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame(imported["detail"]), hide_index=True, use_container_width=True)
+                if catalog_ready:
+                    preview = execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
+            except ValueError as exc:
+                problem = str(exc)
+
+    with planning_tab:
+        if preview is not None:
+            render_contracting_summary(preview)
+        else:
+            st.subheader(f"Contratación requerida · Vigencia {year}")
+            if problem:
+                st.warning(problem)
+            if not catalog_ready:
+                st.info("Complete y guarde las mallas y su clasificación en «Mallas y competencias».")
+            if instructors is None or fichas is None:
+                st.info("Cargue los reportes de planta y fichas en «Reportes y parámetros» para obtener el total de contratistas.")
+            if rules.validate():
+                st.warning("Revise los parámetros de cálculo en «Reportes y parámetros»: " + " ".join(rules.validate()))
+
+        current = {k: v for k, v in previous.items() if k != "saved_at"}
+        pending = preview is None or json.dumps(preview, sort_keys=True) != json.dumps(current, sort_keys=True)
+        if preview is not None:
+            if pending:
+                st.caption("Vista previa con la configuración visible. Pulse «Ejecutar y guardar planeación» para guardar este resultado.")
+            else:
+                st.caption(f"Resultado guardado · Vigencia {year}.")
+        save_column, download_column = st.columns(2)
+        if save_column.button("Ejecutar y guardar planeación", type="primary", use_container_width=True, disabled=preview is None):
+            try:
+                save_planning(path, instructors, preview)
+                saved = load_planning(path)
+                pending = False
+                st.success("Planeación guardada. El Excel contiene el total requerido y las fechas de cada contratista proyectado.")
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                st.error(f"No fue posible guardar la planeación: {exc}")
+        can_download = saved is not None and not pending
+        download_column.download_button(
+            "Descargar planeación guardada en Excel",
+            data=export_planning(*saved) if can_download else b"",
+            file_name=f"planeacion_indicativa_{year}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True, disabled=not can_download,
+        )
+        if saved and pending:
+            st.warning("Hay datos pendientes de ejecutar. Guarde la nueva planeación para actualizar los resultados y su descarga.")
+        if preview is not None:
+            center = preview["center"]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total de horas al año", f"{center['demanda_total_horas_anuales']:g}")
+            c2.metric("Fichas nuevas proyectadas", center["fichas_nuevas"])
+            c3.metric("Fichas que pasan", center["fichas_que_pasan"])
+            st.subheader("Detalle de la planeación")
+            render_contracting_details(preview)
+            render_planning_details(preview, instructors)
+        if saved and pending:
+            with st.expander("Descargar la ejecución anterior"):
+                st.caption(f"Vigencia {saved[1]['planning_year']} · Guardada (UTC): {saved[1]['saved_at']}.")
+                st.download_button(
+                    "Descargar Excel anterior", data=export_planning(*saved),
+                    file_name=f"planeacion_anterior_{saved[1]['planning_year']}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )

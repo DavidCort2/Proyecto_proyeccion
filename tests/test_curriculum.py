@@ -136,14 +136,14 @@ def test_actual_hours_shared_plant_and_endings(curriculum_catalog):
     for row in curriculum_catalog["competencies"]:
         row["transversal"] = False
     _, plan = run_plan(curriculum_catalog)
-    # Dos fichas activas por jornada, cuatro trimestres: (2*30 + 2*26)*12*4.
-    assert plan["center"]["demanda_total_horas_anuales"] == 5376
-    assert plan["center"]["demanda_tecnica_horas_anuales"] == 5376
+    # Meta 100 = dos continuaciones + dos nuevas. Q1: 112 h/sem; Q2–Q4: 56.
+    assert plan["center"]["demanda_total_horas_anuales"] == 3360
+    assert plan["center"]["demanda_tecnica_horas_anuales"] == 3360
     assert plan["center"]["demanda_bilinguismo_horas_anuales"] == 0
     assert plan["center"]["demanda_integralidad_horas_anuales"] == 0
-    assert [r["Fichas nuevas"] for r in plan["quarterly"]] == [2, 2, 0, 0]
+    assert [r["Fichas nuevas"] for r in plan["quarterly"]] == [2, 0, 0, 0]
     assert all(r["Capacidad planta (h/sem)"] == 32 for r in plan["technical_quarterly"])
-    assert all(r["Contratistas requeridos"] == 2 for r in plan["technical_quarterly"])  # ceil((112-32)/40).
+    assert [r["Contratistas requeridos"] for r in plan["technical_quarterly"]] == [2, 1, 1, 1]
     pending = [row for row in plan["curriculum_hours"] if row["Cohorte"].startswith("Ficha")]
     assert {row["Trimestre calendario"] for row in pending} == {1}
     assert {row["Trimestre de formación"] for row in pending} == {7, 9}
@@ -154,12 +154,12 @@ def test_global_classification_changes_components_not_total(curriculum_catalog):
     for row in curriculum_catalog["competencies"]:
         row["transversal"] = row["key"] == "INGLES"
     _, plan = run_plan(curriculum_catalog)
-    # Inglés diurno: continuación 3 + oferta T1 [0,3,3,3] + oferta T2 [0,3,3] = 18.
-    # Inglés mixto: continuación 4 + oferta T1 [0,4,0,4] + oferta T2 [0,4,0] = 16.
-    expected = (18 + 16) * 12  # 408 horas, comprobadas contra las hojas originales.
+    # Inglés diurno: continuación 3 + nueva T1 [0,3,3,3] = 12.
+    # Inglés mixto: continuación 4 + nueva T1 [0,4,0,4] = 12.
+    expected = (12 + 12) * 12  # 288 horas, comprobadas contra las hojas originales.
     assert plan["center"]["demanda_bilinguismo_horas_anuales"] == expected
-    assert plan["center"]["demanda_total_horas_anuales"] == 5376
-    assert plan["center"]["demanda_tecnica_horas_anuales"] == 5376 - expected
+    assert plan["center"]["demanda_total_horas_anuales"] == 3360
+    assert plan["center"]["demanda_tecnica_horas_anuales"] == 3360 - expected
     assert all(row["Área"] == "Bilingüismo" for row in plan["curriculum_hours"] if name_key(row["Competencia"]) == "INGLES")
 
 
@@ -205,7 +205,7 @@ def test_save_reload_export_freezes_catalog(tmp_path, curriculum_catalog, curric
     assert exported["Competencias"].max_row == 19
     sheet = exported["Trazabilidad horas"]
     column = [c.value for c in sheet[1]].index("Horas del trimestre")
-    assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 5376
+    assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 3360
 
 
 def test_real_report_identifies_all_missing_programs(curriculum_catalog):
@@ -220,7 +220,7 @@ def test_real_report_identifies_all_missing_programs(curriculum_catalog):
 
 def test_weeks_and_offer_change_annual_hours_without_mutating_catalog(curriculum_catalog):
     _, plan = run_plan(curriculum_catalog, rules=PlanningRules(weeks_per_quarter=10, intake_weights=(100, 0, 0, 0)))
-    assert plan["center"]["demanda_total_horas_anuales"] == 4480
+    assert plan["center"]["demanda_total_horas_anuales"] == 2800
     _, late = run_plan(curriculum_catalog, frame=ficha_frame(7, 9), rules=PlanningRules(intake_weights=(0, 0, 0, 100)), target=50)
     # Ambas continuaciones ya terminaron; dos nuevas en T4, una por jornada.
     assert late["center"]["demanda_total_horas_anuales"] == 672

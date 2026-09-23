@@ -17,10 +17,14 @@ La base está en `data/planeacion.sqlite3`. No requiere servidor de base de dato
 
 1. En **Mallas y competencias**, cargar uno o varios archivos `PROGRAMA - JORNADA.xlsx`, revisar la vista previa y pulsar **Digitalizar y guardar mallas**. Diurna/Diurno y Mixta/Mixto se normalizan. O&P/P&O requiere su propia malla.
 2. Revisar **Todas las competencias**. Los títulos equivalentes comparten una única competencia. La carga selecciona automáticamente las transversales según el tipo del Excel; cuando falta, reconoce los títulos transversales conocidos. Se pueden corregir **Transversal** y el área Bilingüismo/Integralidad con los campos existentes. **Guardar clasificación de competencias** conserva esa corrección en futuras importaciones.
-3. En **Planeación**, cargar los reportes de instructores y fichas actuales, o recuperarlos de la ejecución guardada.
-4. Configurar vigencia, metas por nivel, aprendices por ficha, horas disponibles de instructores, semanas efectivas y porcentajes de oferta T1–T4. Los porcentajes deben sumar 100 %.
-5. Revisar la proyección y las mallas faltantes. No se transcriben continuaciones, terminaciones, módulos ni horas pendientes.
-6. Pulsar **Ejecutar y guardar planeación** y descargar el Excel. Si cambian las entradas, los resultados guardados se identifican como anteriores hasta volver a ejecutar.
+3. En **Reportes y parámetros**, cargar los reportes para identificar la planta y las fichas, o recuperarlos de la ejecución guardada.
+4. Configurar vigencia, metas totales por nivel (incluyen los aprendices que pasan y los nuevos), aprendices por ficha, horas disponibles de instructores, semanas efectivas y porcentajes de oferta T1–T4. Los porcentajes deben sumar 100 %. La meta ingresada ya debe contener el crecimiento deseado.
+5. En **Planeación**, revisar primero el total de contratistas requeridos y el trimestre del pico máximo. Los detalles y las fechas se consultan debajo en tablas desplegables. No se transcriben continuaciones, terminaciones, módulos ni horas pendientes.
+6. Pulsar **Ejecutar y guardar planeación** y descargar el Excel. Si cambian las entradas, se muestra una sola vista previa y se deshabilita su descarga hasta guardarla. El archivo de la ejecución anterior se conserva en su propio desplegable.
+
+La pantalla principal muestra el **total de contratistas requeridos**, el **trimestre del pico máximo** y su desglose técnico/transversal. El total es la cantidad máxima simultánea durante la vigencia. Ambos componentes corresponden al mismo trimestre y suman ese total; los picos propios de cada perfil se consultan en el detalle. Si el máximo se repite, se muestran todos sus trimestres.
+
+En **Contratistas requeridos y fecha de finalización**, cada fila identifica un instructor técnico o transversal proyectado, su perfil, fecha desde/hasta y capacidad semanal. Son cupos por contratar calculados con las mallas, después de la cobertura de planta. Un cupo con períodos separados tiene una fila por período. El número de filas puede superar el pico simultáneo si cambian los perfiles durante el año.
 
 Los programas y niveles de la oferta se obtienen del reporte de fichas, incluidas sus combinaciones sin continuaciones. La malla por sí sola no identifica el nivel; para incorporar un programa a la oferta debe estar identificado con su nivel y jornada en el reporte.
 
@@ -68,9 +72,19 @@ Si una combinación con demanda no tiene malla, la ejecución se bloquea e ident
 
 ## Fichas e instructores
 
-Se conserva la regla de reposiciones y crecimiento mínimo del 5 % por programa y nivel, redondeada una vez entre sus jornadas. Las metas de Técnico y Tecnólogo se convierten en fichas por separado. Si los mínimos superan la meta, se informa el excedente. El saldo se reparte según continuaciones; sin continuaciones, equitativamente entre combinaciones registradas del nivel.
+La meta es el total de aprendices atendidos durante la vigencia. Cada ficha que pasa cuenta una sola vez para la meta, aunque termine antes de diciembre. Como el reporte no incluye su matrícula, sus aprendices se estiman con el tamaño de ficha configurado. Técnico y Tecnólogo se calculan por separado.
 
-Las reposiciones se abren después de la terminación. Las de T4 quedan para la próxima vigencia. Se incluyen las terminaciones y reposiciones de las fichas nuevas si su duración lo requiere. Los porcentajes de oferta distribuyen el crecimiento y saldo adicional.
+```text
+Aprendices que pasan (estimados) = fichas que pasan × aprendices por ficha
+Saldo de la meta = MAX(meta total − aprendices que pasan, 0)
+Fichas nuevas = CEIL(saldo de la meta / aprendices por ficha)
+```
+
+Las nuevas se distribuyen proporcionalmente a la participación de los programas y jornadas en el reporte, con redondeo por mayores residuos y sin un mínimo obligatorio de una ficha por programa. Se eliminó el crecimiento automático del 5 % por programa: la meta final ya incluye el crecimiento deseado. Así se evita aumentar artificialmente programas pequeños.
+
+Los porcentajes de oferta distribuyen todas las fichas nuevas del nivel y conservan exactamente su total anual. Las fichas que terminan no generan reposiciones adicionales por fuera de ese presupuesto. Se identifican las nuevas que cubren salidas, pero no se agregan otra vez. Una ficha nueva termina según la duración de su malla y deja de demandar horas. Si las continuaciones ya cubren la meta, no se abren nuevas automáticamente; se mantienen todas las horas pendientes de las que pasan.
+
+Las horas no se dividen entre aprendices para obtener fichas: la conversión parte de la meta de aprendices. La malla determina después la demanda de las fichas, competencia por competencia y trimestre por trimestre.
 
 ```text
 Capacidad de planta = instructores del perfil × horas semanales de planta
@@ -111,7 +125,11 @@ El reporte incluido `data/reporteFichas_2026_4.xlsx` contiene varios programas. 
 
 Guardar una planeación reemplaza los instructores y la ejecución previa en una transacción. Las mallas y competencias permanecen. Modificar el catálogo no modifica la copia de una ejecución anterior ni su descarga.
 
+Un reinicio completo vacía reportes, ejecución, mallas, resultados y clasificación, y cambia la versión de reinicio de la base. Las sesiones abiertas detectan ese cambio y borran sus archivos y parámetros en memoria al recargar. Las metas iniciales quedan en cero; las capacidades y el tamaño de ficha conservan valores iniciales válidos para evitar divisiones por cero.
+
 El Excel contiene distribución, metas, calendario, dotación, continuaciones y capacidad, más **Mallas curriculares**, **Competencias**, **Resultados curriculares** y **Trazabilidad horas**. Esta última muestra cohorte/ficha, edad, competencia, resultado, horas unitarias, fichas, horas requeridas y hoja/fila de origen.
+
+Sus dos primeras hojas son **Contratacion requerida** y **Contratistas y fechas**, con el resumen principal y el detalle individual de inicio y finalización. Las fechas se derivan de los meses de necesidad de cada cupo de la ejecución guardada y conservan el mismo identificador de sus asignaciones mensuales.
 
 También exporta **Resumen mensual**, **Horas mensuales por ficha**, **Dotacion mensual por perfil**, **Capacidad mensual instructores**, **Asignacion mensual de horas** y **Supuestos mensuales**. La ejecución guarda estas tablas para que una descarga posterior conserve los mismos cálculos.
 
@@ -133,4 +151,4 @@ Para comprobar los reportes y mallas de la base local y generar un Excel de revi
 .\.venv\Scripts\python.exe scripts/validate_curricula.py
 ```
 
-El archivo se escribe en `data/validaciones/planeacion_periodos_contratacion.xlsx`.
+El archivo se escribe en `data/validaciones/planeacion_periodos_contratacion.xlsx`. Después de un reinicio completo se deben volver a cargar los dos reportes, las mallas y ejecutar antes de usar esta validación.

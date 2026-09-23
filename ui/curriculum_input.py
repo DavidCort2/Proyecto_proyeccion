@@ -10,11 +10,16 @@ from core.curriculum import catalog_digest, curriculum_key, parse_curriculum
 from core.curriculum_store import import_curricula, load_curricula, save_competencies
 
 
+def resettable_upload_key(name):
+    revision = st.session_state.get("_database_reset_version", 0)
+    return f"{name}_reset_{revision}" if revision else name
+
+
 def curriculum_inputs(path):
     catalog = load_curricula(path)
     st.subheader("Mallas curriculares")
     st.caption("Cargue uno o varios archivos PROGRAMA - JORNADA.xlsx. Se guardan todos los resultados y sus horas por trimestre. Una nueva versión reemplaza solo la malla del mismo programa y jornada.")
-    uploaded = st.file_uploader("Mallas curriculares (.xlsx)", type=["xlsx"], accept_multiple_files=True, key="curricula_upload")
+    uploaded = st.file_uploader("Mallas curriculares (.xlsx)", type=["xlsx"], accept_multiple_files=True, key=resettable_upload_key("curricula_upload"))
     ready = True
     if uploaded:
         files = [(item.name, item.getvalue()) for item in uploaded]

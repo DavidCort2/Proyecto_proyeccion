@@ -50,25 +50,36 @@ def validate_endings(manual, endings):
     return result
 
 
-def calendar_rows(distribution, endings, rules, durations=None):
+def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=None):
     """Reserva reemplazos al trimestre siguiente y prioriza primera oferta adicional."""
     rows = []
     for index, row in distribution.iterrows():
         finish = endings.loc[index, ENDING_COLUMNS].astype(int).tolist()
         replacements = [0, *finish[:3]]
-        additional = int(row["Fichas nuevas"]) - sum(replacements)
-        intake = largest_remainder_allocation(additional, range(4), rules.intake_weights)
-        starts = [replacements[q] + intake[q] for q in range(4)]
+        if intake_schedule is not None:
+            starts = list(intake_schedule[index])
+        else:
+            additional = int(row["Fichas nuevas"]) - sum(replacements)
+            intake = largest_remainder_allocation(additional, range(4), rules.intake_weights)
+            starts = [replacements[q] + intake[q] for q in range(4)]
         from core.curriculum import curriculum_key
         duration = (durations or {}).get(curriculum_key(row["Especialidad"], row["Jornada"]))
         if duration is None:
             duration = duration_in_quarters(row["Nivel"], row["Jornada"])
         # Una ficha técnica abierta en T1 termina en T3: se reemplaza en T4.
         extra_replacements = [0] * 4
-        for q in range(duration, 4):
+        for q in range(duration, 4) if intake_schedule is None else []:
             required = finish[q - 1] + starts[q - duration]
             extra_replacements[q] = max(0, required - starts[q])
             starts[q] += extra_replacements[q]
+        if intake_schedule is not None:
+            pending_replacements = 0
+            replacements = []
+            for q in range(4):
+                pending_replacements += (finish[q - 1] if q else 0) + (starts[q - duration] if q >= duration else 0)
+                covered = min(starts[q], pending_replacements)
+                replacements.append(covered)
+                pending_replacements -= covered
         rates = hours_by_profile(pd.DataFrame([row]), rules).iloc[0]
         for q in range(4):
             continuing = int(row["Fichas que pasan"]) - sum(finish[:q])
@@ -77,7 +88,7 @@ def calendar_rows(distribution, endings, rules, durations=None):
             active = continuing + new_active
             item = {**{column: row[column] for column in PROFILE_COLUMNS},
                     "Trimestre": q + 1, "Semanas": rules.weeks_per_quarter,
-                    "Fichas nuevas": starts[q], "Reposiciones": replacements[q] + (starts[q - duration] if q >= duration else 0),
+                    "Fichas nuevas": starts[q], "Reposiciones": replacements[q] + (starts[q - duration] if q >= duration and intake_schedule is None else 0),
                     "Nuevas adicionales por rotación": extra_replacements[q],
                     "Continuaciones activas": continuing, "Nuevas activas": new_active,
                     "Fichas activas": active, "Terminan continuaciones": finish[q],
@@ -93,7 +104,9 @@ def calendar_rows(distribution, endings, rules, durations=None):
 
 def apply_calendar(execution, instructors, distribution, endings, rules, *, modules=None, continuing_hours=None, ficha_import=None, curriculum_catalog=None):
     from core.curriculum import duration_lookup
-    calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None)
+    from core.curriculum_intakes import curricular_offer_schedule
+    schedule = curricular_offer_schedule(distribution, rules) if execution.get("target_basis") else None
+    calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None, schedule)
     if curriculum_catalog is not None:
         from core.curriculum_planner import apply_curriculum_hours
         if modules is not None:
@@ -171,13 +184,18 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     for level in execution["levels"]:
         group = calendar.loc[calendar["Nivel"] == level["Nivel"]]
         level["Fichas nuevas"] = int(group["Fichas nuevas"].sum())
-        level["Fichas sobre la meta"] = level["Fichas nuevas"] - level["Fichas según meta"]
-        level["Cupos proyectados"] = level["Fichas nuevas"] * rules.learners_per_ficha
+        accounted = level["Fichas nuevas"] + (level["Fichas que pasan"] if execution.get("target_basis") else 0)
+        level["Fichas sobre la meta"] = max(0, accounted - level["Fichas según meta"])
+        level["Cupos proyectados"] = accounted * rules.learners_per_ficha
         level["Horas anuales requeridas"] = float(group["Horas totales del trimestre"].sum())
         level["Horas anuales nuevas"] = float(group["Horas nuevas del trimestre"].sum())
     center["fichas_nuevas"] = int(distribution["Fichas nuevas"].sum())
-    center["fichas_adicionales_sobre_meta"] = center["fichas_nuevas"] - center["fichas_segun_meta"]
-    center["aprendices_proyectados"] = center["cupos_teoricos"] = center["fichas_nuevas"] * rules.learners_per_ficha
+    accounted = center["fichas_nuevas"] + (center["fichas_que_pasan"] if execution.get("target_basis") else 0)
+    center["fichas_adicionales_sobre_meta"] = max(0, accounted - center["fichas_segun_meta"])
+    center["aprendices_proyectados"] = center["cupos_teoricos"] = accounted * rules.learners_per_ficha
+    if execution.get("target_basis"):
+        center["cupos_nuevos"] = center["fichas_nuevas"] * rules.learners_per_ficha
+        center["aprendices_que_pasan_estimados"] = center["fichas_que_pasan"] * rules.learners_per_ficha
     center["holgura_cupos"] = center["cupos_teoricos"] - center["meta_aprendices"]
     execution.update(distribution=records(distribution), distribution_basis="quarterly_v1", hours=hours,
                      calendar=records(calendar), quarterly=quarterly, quarter_endings=records(endings),

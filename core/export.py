@@ -2,6 +2,8 @@ from io import BytesIO
 
 import pandas as pd
 
+from core.contracting_periods import contracting_headline, individual_contract_periods
+
 def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
     """Exporta únicamente la instantánea ejecutada y guardada."""
     output = BytesIO()
@@ -13,9 +15,17 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
         **execution["summary"],
     }
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        if "contract_windows" in execution:
+            pd.DataFrame([contracting_headline(execution)]).to_excel(writer, sheet_name="Contratacion requerida", index=False)
+            pd.DataFrame(individual_contract_periods(execution), columns=[
+                "Instructor proyectado", "Tipo", "Perfil", "Requerido desde", "Requerido hasta", "Meses",
+                "Capacidad (h/sem)", "Instructor ID"]).to_excel(writer, sheet_name="Contratistas y fechas", index=False)
         pd.DataFrame([metadata]).to_excel(writer, sheet_name="Resumen planeacion", index=False)
         pd.DataFrame([execution["rules"]]).to_excel(writer, sheet_name="Reglas", index=False)
         pd.DataFrame(execution["distribution"]).to_excel(writer, sheet_name="Distribucion", index=False)
+        if execution.get("target_basis"):
+            pd.DataFrame(execution["intake_allocation"]).to_excel(writer, sheet_name="Asignacion de fichas nuevas", index=False)
+            pd.DataFrame([{"Criterio de meta y oferta": execution["intake_basis"]}]).to_excel(writer, sheet_name="Criterio de la meta", index=False)
         if "levels" in execution:
             pd.DataFrame(execution["levels"]).to_excel(writer, sheet_name="Metas por nivel", index=False)
             pd.DataFrame(execution["hours"]).to_excel(writer, sheet_name="Horas por nivel y jornada", index=False)
