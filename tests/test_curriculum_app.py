@@ -131,6 +131,9 @@ def test_automatic_flow_import_execute_export_and_reopen(app_args):
     endings = next(item for item in reopened.tabs[0].expander if item.label == "Duración y terminación de las fichas del reporte")
     assert {"Archivo malla", "Duración (trimestres)", "Fecha fin estimada", "Trimestres pendientes al iniciar la vigencia"}.issubset(endings.dataframe[0].value.columns)
     assert endings.dataframe[0].value["Fecha fin estimada"].eq("2027-03-31").all()
+    audit = next(item for item in reopened.tabs[0].expander if item.label == "Reglas utilizadas en el cálculo")
+    assert {"Parámetro", "Valor", "Origen"}.issubset(audit.dataframe[0].value.columns)
+    assert "Meta total · Tecnólogo" in audit.dataframe[0].value["Parámetro"].tolist()
 
 
 def test_unique_classification_save_and_pending_execution(app_args):

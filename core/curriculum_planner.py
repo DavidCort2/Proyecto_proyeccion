@@ -4,7 +4,7 @@ import pandas as pd
 
 from core.curriculum import curriculum_key, curriculum_lookup, duration_lookup, name_key
 from core.ficha_projection import merge_ficha_specialties, project_ficha_carryover
-from core.level_planner import MANUAL_COLUMNS, execute_level_plan
+from core.level_planner import MANUAL_COLUMNS, validate_profiles
 from core.planner import technical_specialty_catalog
 from core.workflow import records
 
@@ -100,13 +100,25 @@ def apply_curriculum_hours(calendar, catalog, imported, year, rules):
 
 
 def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest):
+    from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
+    from core.curriculum_intakes import initialize_curricular_plan
+
+    errors = rules.validate_curricular()
+    if errors:
+        raise ValueError(" ".join(errors))
+    if instructors.empty or not 2000 <= year <= 2200:
+        raise ValueError("Revise el reporte de instructores y la vigencia a planear.")
     # Recalcula desde los registros originales: no acepta cantidades ni edades manuales guardadas.
     imported = prepare_ficha_import(pd.DataFrame(imported["rows"]), instructors, catalog, year,
                                     imported["source_name"], imported["source_digest"],
                                     imported["report_year"], imported["report_quarter"])
-    manual = pd.DataFrame(imported["summary"], columns=MANUAL_COLUMNS)
-    execution = execute_level_plan(instructors, manual, rules, targets, year, source_name, source_digest,
-                                   ficha_import=imported, curriculum_catalog=catalog)
+    manual = validate_profiles(pd.DataFrame(imported["summary"], columns=MANUAL_COLUMNS), instructors)
+    endings = validate_endings(manual, suggested_endings(manual, imported, strict=True))
+    # Este recorrido no llama al planificador histórico ni a sus reglas de crecimiento.
+    execution = initialize_curricular_plan(instructors, manual, imported, targets, rules, year, source_name, source_digest)
+    execution = apply_calendar(execution, instructors, pd.DataFrame(execution["distribution"]), endings, rules,
+                               ficha_import=imported, curriculum_catalog=catalog)
+    execution["staffing_basis"] = "plant_only_curricula_v1"
     execution["ficha_import"] = imported
     execution["planning_mode"] = "curricula_v5"
     execution["duration_basis"] = (
@@ -117,6 +129,26 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
         "No se sustituyen mallas ausentes por duraciones de referencia ni por otra jornada."
     )
     execution["contracting_basis"] = "La capacidad disponible incluye únicamente planta. La contratación se proyecta completa por perfil y por período según las horas de las mallas."
+    execution["calculation_parameters"] = [
+        {"Parámetro": "Meta total · " + level, "Valor": target, "Origen": "Metas ingresadas en pantalla"}
+        for level, target in targets.items()
+    ] + [
+        {"Parámetro": label, "Valor": value, "Origen": "Parámetros editables del escenario"}
+        for label, value in [
+            ("Aprendices por ficha", rules.learners_per_ficha),
+            ("Capacidad de planta por instructor (h/sem)", rules.weekly_plant_direct_hours),
+            ("Capacidad por contratista (h/sem)", rules.weekly_contractor_hours),
+            ("Semanas efectivas por trimestre", rules.weeks_per_quarter),
+            *[(f"Ingresos en oferta T{q} (%)", weight) for q, weight in enumerate(rules.intake_weights, 1)],
+        ]
+    ]
+    execution["calculation_basis"] = (
+        "La meta determina cuántas fichas nuevas faltan, descontando las que pasan y usando los aprendices por ficha configurados. "
+        "La participación de los programas se obtiene del reporte y las ofertas se distribuyen con los porcentajes configurados. "
+        "Las horas se suman desde las mallas según la edad de cada ficha. Por perfil y período se calcula "
+        "máximo(horas requeridas − capacidad de planta, 0) / capacidad por contratista, redondeando hacia arriba. "
+        "El pico es el máximo simultáneo de esos períodos. No hay una cantidad de instructores predefinida por meta."
+    )
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods
     return apply_contracting_periods(apply_monthly_plan(execution, instructors, rules), rules)

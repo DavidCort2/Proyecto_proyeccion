@@ -75,6 +75,8 @@ En **Duración y terminación de las fichas del reporte** se consultan la malla 
 
 Los parámetros editables de capacidad por instructor, aprendices por ficha, semanas efectivas y ofertas siguen siendo entradas del escenario, pues los reportes no suministran todos esos valores. Las horas nominales de jornada no intervienen en ninguna etapa del cálculo curricular. Las reglas del modelo histórico se conservan para sus pruebas de compatibilidad; el flujo principal exige mallas y tiene una prueba que falla si intenta invocar duraciones, crecimiento u horas del modelo anterior. Los valores del calendario (cuatro trimestres y tres meses por trimestre) y las tolerancias de redondeo no representan datos de programas.
 
+El motor curricular tiene un recorrido propio: no llama al planificador histórico. Valida únicamente los parámetros que usa; las referencias horarias no bloquean ni completan su demanda. Una meta fraccionaria, capacidad inválida, perfil sin correspondencia en el reporte o demanda incompleta produce un error; no se convierte silenciosamente a otra cantidad. En **Reglas utilizadas en el cálculo** y en las hojas **Parametros usados** y **Criterio de calculo** se muestran los valores efectivos, su origen y la fórmula. La auditoría y sus comprobaciones están en [AUDITORIA_CALCULOS.md](docs/AUDITORIA_CALCULOS.md).
+
 ## Fichas e instructores
 
 La meta es el total de aprendices atendidos durante la vigencia. Cada ficha que pasa cuenta una sola vez para la meta, aunque termine antes de diciembre. Como el reporte no incluye su matrícula, sus aprendices se estiman con el tamaño de ficha configurado. Técnico y Tecnólogo se calculan por separado.

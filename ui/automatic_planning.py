@@ -138,9 +138,9 @@ def render_automatic_planning(path):
                              hide_index=True, use_container_width=True)
         st.subheader("Metas y parámetros")
         year, targets, rules = parameters(previous)
-        for error in rules.validate():
+        for error in rules.validate_curricular():
             st.error(error)
-        if instructors is not None and fichas is not None and not rules.validate():
+        if instructors is not None and fichas is not None and not rules.validate_curricular():
             try:
                 frame, name, digest, report_year, report_quarter = fichas
                 imported = prepare_ficha_import(frame, instructors, catalog, year, name, digest, report_year, report_quarter)
@@ -168,8 +168,8 @@ def render_automatic_planning(path):
                 st.info("Complete y guarde las mallas y su clasificación en «Mallas y competencias».")
             if instructors is None or fichas is None:
                 st.info("Cargue los reportes de planta y fichas en «Reportes y parámetros» para obtener el total de contratistas.")
-            if rules.validate():
-                st.warning("Revise los parámetros de cálculo en «Reportes y parámetros»: " + " ".join(rules.validate()))
+            if rules.validate_curricular():
+                st.warning("Revise los parámetros de cálculo en «Reportes y parámetros»: " + " ".join(rules.validate_curricular()))
 
         current = {k: v for k, v in previous.items() if k != "saved_at"}
         pending = preview is None or json.dumps(preview, sort_keys=True) != json.dumps(current, sort_keys=True)

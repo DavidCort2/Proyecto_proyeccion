@@ -255,9 +255,13 @@ def technical_staffing_plan(
     result["Instructores planta"] = result["Especialidad"].map(plant_lookup).fillna(0).astype(int)
     result["Fichas activas"] = result["Fichas nuevas"] + result["Fichas que pasan"]
     result["Fichas al cierre"] = result["Fichas activas"] - result["Fichas que terminan"]
-    result["Demanda técnica (h/sem)"] = result["Fichas activas"] * rules.weekly_technical_hours
     if demand_by_specialty is not None:
-        result["Demanda técnica (h/sem)"] = result["Especialidad"].map(demand_by_specialty).fillna(0.0)
+        demand = result["Especialidad"].map(demand_by_specialty)
+        if demand.isna().any() or not demand.map(math.isfinite).all() or (demand < 0).any():
+            raise ValueError("Faltan horas válidas de demanda para una especialidad; no se pueden completar con cero ni con horas nominales.")
+        result["Demanda técnica (h/sem)"] = demand
+    else:
+        result["Demanda técnica (h/sem)"] = result["Fichas activas"] * rules.weekly_technical_hours
     result["Capacidad planta (h/sem)"] = result["Instructores planta"] * rules.weekly_plant_direct_hours
     result["Horas atendidas por planta (h/sem)"] = result[["Demanda técnica (h/sem)", "Capacidad planta (h/sem)"]].min(axis=1)
     result["Instructores equivalentes requeridos"] = result["Demanda técnica (h/sem)"] / rules.weekly_plant_direct_hours
@@ -314,12 +318,13 @@ def transversal_staffing_plan(
     """Calcula contratación requerida para Bilingüismo e Integralidad."""
     plant = df.loc[df["Es planta"]].copy()
     counts = plant.groupby("Área").size().to_dict()
-    demand_hours = {
+    demand_hours = demand_by_area if demand_by_area is not None else {
         "Bilingüismo": active_fichas * rules.weekly_bilingual_hours,
         "Integralidad": active_fichas * rules.weekly_integrality_hours,
     }
-    if demand_by_area is not None:
-        demand_hours = demand_by_area
+    if any(area not in demand_hours or not math.isfinite(demand_hours[area]) or demand_hours[area] < 0
+           for area in ("Bilingüismo", "Integralidad")):
+        raise ValueError("Faltan horas válidas de demanda transversal; no se pueden completar con horas nominales.")
 
     rows: list[dict[str, float | int | str]] = []
     for area in ["Bilingüismo", "Integralidad"]:

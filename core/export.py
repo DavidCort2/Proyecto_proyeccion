@@ -22,6 +22,9 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
                 "Capacidad (h/sem)", "Instructor ID"]).to_excel(writer, sheet_name="Contratistas y fechas", index=False)
         pd.DataFrame([metadata]).to_excel(writer, sheet_name="Resumen planeacion", index=False)
         pd.DataFrame([execution["rules"]]).to_excel(writer, sheet_name="Reglas", index=False)
+        if execution.get("calculation_parameters"):
+            pd.DataFrame(execution["calculation_parameters"]).to_excel(writer, sheet_name="Parametros usados", index=False)
+            pd.DataFrame([{"Cálculo automático": execution["calculation_basis"]}]).to_excel(writer, sheet_name="Criterio de calculo", index=False)
         pd.DataFrame(execution["distribution"]).to_excel(writer, sheet_name="Distribucion", index=False)
         if execution.get("target_basis"):
             pd.DataFrame(execution["intake_allocation"]).to_excel(writer, sheet_name="Asignacion de fichas nuevas", index=False)

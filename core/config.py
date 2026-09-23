@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import math
+from numbers import Real
 
 
 @dataclass(frozen=True)
@@ -56,4 +58,25 @@ class PlanningRules:
             errors.append(
                 "Bilingüismo + integralidad no pueden superar las horas semanales de la ficha."
             )
+        return errors
+
+    def validate_curricular(self) -> list[str]:
+        """Valida solo las entradas que intervienen en el cálculo desde mallas."""
+        def positive(value, *, integer=False):
+            return (isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+                    and value > 0 and (not integer or value % 1 == 0))
+
+        errors = []
+        if not positive(self.learners_per_ficha, integer=True):
+            errors.append("Los aprendices por ficha deben ser un entero positivo.")
+        if not positive(self.weekly_plant_direct_hours):
+            errors.append("La capacidad semanal por instructor de planta debe ser un número finito mayor que cero.")
+        if not positive(self.weekly_contractor_hours):
+            errors.append("La capacidad semanal por contratista debe ser un número finito mayor que cero.")
+        if not positive(self.weeks_per_quarter, integer=True) or self.weeks_per_quarter > 13:
+            errors.append("Las semanas efectivas por trimestre deben ser un entero entre 1 y 13.")
+        weights = self.intake_weights
+        if (len(weights) != 4 or any(not isinstance(w, Real) or isinstance(w, bool) or not math.isfinite(w) or w < 0 for w in weights)
+                or not math.isclose(sum(weights), 100, rel_tol=0, abs_tol=1e-9)):
+            errors.append("Los porcentajes de oferta de los cuatro trimestres deben ser no negativos y sumar 100 %.")
         return errors

@@ -84,6 +84,9 @@ def render_planning_details(execution, instructors):
                      hide_index=True, use_container_width=True)
         st.dataframe(pd.DataFrame(execution["resources"]), hide_index=True, use_container_width=True)
     with st.expander("Reglas utilizadas en el cálculo"):
+        if execution.get("calculation_basis"):
+            st.caption(execution["calculation_basis"])
+            st.dataframe(pd.DataFrame(execution["calculation_parameters"]), hide_index=True, use_container_width=True)
         st.caption(execution["monthly_basis"])
         st.caption(execution["contracting_periods_basis"])
         st.write(f"Planta: {execution['rules']['weekly_plant_direct_hours']:g} h/semana por instructor. "

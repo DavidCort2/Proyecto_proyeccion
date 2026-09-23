@@ -187,6 +187,10 @@ def test_monthly_snapshot_and_excel_match_saved_execution(tmp_path, curriculum_c
     headings = [cell.value for cell in sheet[1]]
     assert {"Archivo malla", "Duración (trimestres)", "Fecha fin estimada"}.issubset(headings)
     assert "Criterio de duraciones" in book.sheetnames
+    assert {"Parametros usados", "Criterio de calculo"}.issubset(book.sheetnames)
+    parameters = list(book["Parametros usados"].values)
+    assert parameters[0] == ("Parámetro", "Valor", "Origen")
+    assert dict((row[0], row[1]) for row in parameters[1:])["Capacidad por contratista (h/sem)"] == plan["rules"]["weekly_contractor_hours"]
     column = [cell.value for cell in sheet[1]].index("Horas requeridas (h/mes)")
     assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 3360
 

@@ -119,7 +119,9 @@ def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=
 def apply_calendar(execution, instructors, distribution, endings, rules, *, modules=None, continuing_hours=None, ficha_import=None, curriculum_catalog=None):
     from core.curriculum import duration_lookup
     from core.curriculum_intakes import curricular_offer_schedule
-    schedule = curricular_offer_schedule(distribution, rules) if execution.get("target_basis") else None
+    # La presencia de mallas obliga al calendario curricular, incluso si falta
+    # una etiqueta de una ejecución anterior; nunca activa reposiciones extra.
+    schedule = curricular_offer_schedule(distribution, rules) if curriculum_catalog is not None or execution.get("target_basis") else None
     calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None, schedule)
     if curriculum_catalog is not None:
         from core.curriculum_planner import apply_curriculum_hours

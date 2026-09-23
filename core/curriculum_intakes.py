@@ -1,6 +1,8 @@
 """Fichas para cubrir la meta una sola vez, sin mínimos adicionales por programa."""
 from collections import Counter
 from dataclasses import asdict
+import math
+from numbers import Real
 
 import pandas as pd
 
@@ -38,6 +40,11 @@ def initialize_curricular_plan(instructors, manual, imported, targets, rules, ye
 
 
 def project_curricular_intakes(manual, imported, targets, rules):
+    if set(targets) != {"Técnico", "Tecnólogo"} or any(
+        not isinstance(value, Real) or isinstance(value, bool) or not math.isfinite(value) or value < 0 or value % 1
+        for value in targets.values()
+    ):
+        raise ValueError("Indique metas de aprendices enteras y no negativas para Técnico y Tecnólogo.")
     result = manual.copy()
     result["Fichas nuevas"] = 0
     census = Counter()
@@ -45,6 +52,8 @@ def project_curricular_intakes(manual, imported, targets, rules):
         census[(*curriculum_key(row["Especialidad"], row["Jornada de planeación"]), name_key(row["Nivel"]))] += 1
     weights = {index: census[(*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))]
                for index, row in result.iterrows()}
+    if any(weight <= 0 for weight in weights.values()) or sum(weights.values()) != len(imported["detail"]):
+        raise ValueError("La distribución de programas debe corresponder a las fichas del reporte; no se pueden asignar proporciones predeterminadas.")
     levels, audit = [], []
     for level in ("Técnico", "Tecnólogo"):
         subset = result.loc[result["Nivel"] == level]
