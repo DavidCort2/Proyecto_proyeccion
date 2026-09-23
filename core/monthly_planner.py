@@ -2,7 +2,8 @@
 from collections import defaultdict
 import math
 
-from core.curriculum import curriculum_key
+from core.curriculum import curriculum_key, curriculum_lookup
+from core.ficha_projection import quarter_end_date
 from core.planner import contractors_for_hours
 
 MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -20,6 +21,7 @@ def _pool(area, specialty):
 
 def monthly_fichas(execution, rules):
     """Una fila por ficha/mes; las nuevas usan identificadores de proyección."""
+    curricula = curriculum_lookup(execution["curriculum_catalog"])
     cohorts = {}
     for row in execution["curriculum_hours"]:
         key = tuple(row[c] for c in ("Programa", "Nivel", "Jornada", "Cohorte", "Trimestre calendario"))
@@ -31,6 +33,8 @@ def monthly_fichas(execution, rules):
     for entry in cohorts.values():
         row, hours = entry["sample"], entry["hours"]
         quarter = row["Trimestre calendario"]
+        curriculum = curricula[curriculum_key(row["Programa"], row["Jornada"])]
+        finish_period = execution["planning_year"] * 4 + quarter - 1 + curriculum["duration"] - row["Trimestre de formación"]
         new = row["Cohorte"].startswith("Oferta T")
         for number in range(1, row["Fichas"] + 1):
             ficha = (f"Nueva {execution['planning_year']} | {row['Programa']} | {row['Nivel']} | {row['Jornada']} | {row['Cohorte']} | {number}"
@@ -38,6 +42,8 @@ def monthly_fichas(execution, rules):
             for month in range(quarter * 3 - 2, quarter * 3 + 1):
                 item = {"Programa": row["Programa"], "Nivel": row["Nivel"], "Jornada": row["Jornada"],
                         "Ficha": ficha, "Tipo ficha": "Nueva proyectada" if new else "Continuación",
+                        "Archivo malla": curriculum["source_name"], "Duración (trimestres)": curriculum["duration"],
+                        "Fecha fin estimada": quarter_end_date(finish_period),
                         "Cohorte": row["Cohorte"], "Trimestre de formación": row["Trimestre de formación"],
                         "Trimestre": quarter, "Mes número": month, "Mes": MONTHS[month - 1], "Semanas efectivas": weeks}
                 for area, label in COMPONENTS.items():

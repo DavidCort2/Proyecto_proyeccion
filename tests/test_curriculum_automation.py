@@ -184,15 +184,21 @@ def test_monthly_snapshot_and_excel_match_saved_execution(tmp_path, curriculum_c
     assert {"Resumen mensual", "Horas mensuales por ficha", "Dotacion mensual por perfil", "Capacidad mensual instructores", "Asignacion mensual de horas", "Supuestos mensuales"}.issubset(book.sheetnames)
     assert {"Periodos de contratacion", "Contratacion por trimestre", "Picos por perfil", "Excesos y reducciones", "Criterio de contratacion"}.issubset(book.sheetnames)
     sheet = book["Horas mensuales por ficha"]
+    headings = [cell.value for cell in sheet[1]]
+    assert {"Archivo malla", "Duración (trimestres)", "Fecha fin estimada"}.issubset(headings)
+    assert "Criterio de duraciones" in book.sheetnames
     column = [cell.value for cell in sheet[1]].index("Horas requeridas (h/mes)")
     assert sum(row[column] for row in sheet.iter_rows(min_row=2, values_only=True)) == 3360
 
 
-def test_op_alias_uses_only_a_confirmed_ten_quarter_malla():
+@pytest.mark.parametrize("duration", [7, 10, 12])
+def test_op_never_inherits_another_shift_based_on_its_duration(duration):
     item = {"program": "DESARROLLO Y ADAPTACION DE ORTESIS Y PROTESIS", "schedule": "Diurna", "duration": 10}
+    item["duration"] = duration
     catalog = {"curricula": [item]}
     key = curriculum_key("DESARROLLO Y ADAPTACION DE PROTESIS Y ORTESIS", "P&O-tarde")
-    assert curriculum_lookup(catalog)[key] == item
-    assert duration_lookup(catalog)[key] == 10
-    item["duration"] = 7
     assert key not in curriculum_lookup(catalog)
+    assert key not in duration_lookup(catalog)
+    item["schedule"] = "O&P"
+    assert curriculum_lookup(catalog)[key] == item
+    assert duration_lookup(catalog)[key] == duration

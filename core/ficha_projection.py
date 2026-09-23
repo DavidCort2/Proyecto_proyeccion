@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import math
+from calendar import monthrange
+from datetime import date
 
 import pandas as pd
 
 from core.excel_parser import normalize_text
+
+
+def quarter_end_date(period: int) -> str:
+    year, quarter = divmod(period, 4)
+    month = (quarter + 1) * 3
+    return date(year, month, monthrange(year, month)[1]).isoformat()
 
 
 def is_op_schedule(schedule: str) -> bool:
@@ -14,6 +22,7 @@ def is_op_schedule(schedule: str) -> bool:
 
 
 def duration_in_quarters(level: str, schedule: str, schedule_overrides: dict[str, int] | None = None) -> int:
+    """Compatibilidad del modelo histórico; el flujo curricular no usa estas reglas."""
     level, schedule = normalize_text(level), normalize_text(schedule)
     if level in {"TECNICO", "TECNOLOGO"} and is_op_schedule(schedule):
         return 10
@@ -49,6 +58,9 @@ def project_ficha_carryover(
         raise ValueError("El reporte no contiene fichas.")
     if fichas["Ficha"].duplicated().any():
         raise ValueError("Hay códigos de ficha repetidos; revise el reporte para no duplicar continuaciones.")
+    if curriculum_durations is not None:
+        from core.curriculum import require_curriculum_durations
+        require_curriculum_durations(fichas, curriculum_durations)
 
     detail = fichas.copy()
     durations, finish_periods = [], []
@@ -56,12 +68,16 @@ def project_ficha_carryover(
     for row in detail.to_dict("records"):
         try:
             from core.curriculum import curriculum_key
-            duration = (curriculum_durations or {}).get(curriculum_key(row["Especialidad"], row["Jornada"])) if curriculum_durations is not None else None
-            if duration is None:
+            if curriculum_durations is not None:
+                duration = int(curriculum_durations[curriculum_key(row["Especialidad"], row["Jornada"])])
+            else:
                 duration = duration_in_quarters(row["Nivel"], row["Jornada"], schedule_overrides)
             current = float(row["Trimestre actual"])
-            if not math.isfinite(current) or current < 1 or current % 1:
+            if isinstance(row["Trimestre actual"], bool) or not math.isfinite(current) or current < 1 or current % 1:
                 raise ValueError("El trimestre actual debe ser un entero positivo.")
+            if curriculum_durations is not None and current > duration:
+                raise ValueError(f"el trimestre reportado ({int(current)}) supera los {duration} trimestres de la malla de "
+                                 f"{row['Especialidad']} · {row['Jornada']}. Revise el reporte y la malla; no se puede inferir otra duración.")
         except (ValueError, TypeError) as exc:
             raise ValueError(f"Ficha {row['Ficha']}: {exc}") from exc
         durations.append(duration)
@@ -69,8 +85,14 @@ def project_ficha_carryover(
     detail["Duración (trimestres)"] = durations
     detail["Año fin estimado"] = [period // 4 for period in finish_periods]
     detail["Trimestre fin estimado"] = [period % 4 + 1 for period in finish_periods]
+    detail["Fecha fin estimada"] = [quarter_end_date(period) for period in finish_periods]
     detail["Pasa a la vigencia"] = [period >= planning_year * 4 for period in finish_periods]
     detail["Termina en la vigencia"] = [planning_year * 4 <= period < (planning_year + 1) * 4 for period in finish_periods]
+    detail["Trimestre al iniciar la vigencia"] = [
+        int(current) + planning_year * 4 - report_period if passes else None
+        for current, passes in zip(detail["Trimestre actual"], detail["Pasa a la vigencia"])
+    ]
+    detail["Trimestres pendientes al iniciar la vigencia"] = [max(0, period - planning_year * 4 + 1) for period in finish_periods]
     detail["Estado"] = [
         "Pasa y termina durante la vigencia" if ends else
         "Pasa y continúa después de la vigencia" if passes else
@@ -79,11 +101,16 @@ def project_ficha_carryover(
     ]
     group_columns = ["Especialidad"]
     if group_by_profile:
-        detail["Nivel"] = detail["Nivel"].map(lambda value: {"TECNICO": "Técnico", "TECNOLOGO": "Tecnólogo"}[normalize_text(value)])
+        detail["Nivel"] = detail["Nivel"].map(lambda value: {"TECNICO": "Técnico", "TECNOLOGO": "Tecnólogo"}.get(normalize_text(value)))
+        if detail["Nivel"].isna().any():
+            raise ValueError("El reporte debe indicar Técnico o Tecnólogo para cada ficha.")
         schedules = []
         for schedule in detail["Jornada"]:
             normalized = normalize_text(schedule)
-            if is_op_schedule(normalized):
+            if curriculum_durations is not None:
+                from core.curriculum import schedule_name
+                schedules.append(schedule_name(schedule))
+            elif is_op_schedule(normalized):
                 schedules.append("Diurna O&P")
             elif normalized == "MIXTA":
                 schedules.append("Mixta")

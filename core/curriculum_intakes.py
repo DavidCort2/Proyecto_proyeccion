@@ -1,13 +1,40 @@
 """Fichas para cubrir la meta una sola vez, sin mínimos adicionales por programa."""
 from collections import Counter
+from dataclasses import asdict
 
 import pandas as pd
 
 from core.curriculum import curriculum_key, name_key
-from core.planner import fichas_from_target, largest_remainder_allocation
+from core.planner import fichas_from_target, largest_remainder_allocation, plant_resource_summary
+from core.workflow import records
 
 
 TARGET_BASIS = "total_learners_including_carryover"
+
+
+def initialize_curricular_plan(instructors, manual, imported, targets, rules, year, source_name, source_digest):
+    """Prepara fichas y recursos; las horas se calculan después desde las mallas."""
+    distribution, levels, audit = project_curricular_intakes(manual, imported, targets, rules)
+    continuing = int(distribution["Fichas que pasan"].sum())
+    return {
+        "planning_year": year, "source_name": source_name, "source_digest": source_digest,
+        "targets_by_level": targets, "target_learners": sum(targets.values()),
+        "continuing_fichas": continuing, "rules": asdict(rules),
+        "distribution": records(distribution), "levels": records(levels),
+        "center": {"meta_aprendices": sum(targets.values()),
+                   "fichas_segun_meta": int(levels["Fichas según meta"].sum()),
+                   "fichas_que_pasan": continuing,
+                   "capacidad_planta_horas_semana": int(instructors["Es planta"].sum()) * rules.weekly_plant_direct_hours},
+        "resources": records(plant_resource_summary(instructors, rules)),
+        "target_basis": TARGET_BASIS, "intake_allocation": audit,
+        "intake_basis": (
+            "La meta incluye aprendices de las fichas que pasan y de las nuevas, contados una sola vez. "
+            "Las nuevas cubren el saldo dividido entre aprendices por ficha, redondeado por nivel. "
+            "Los cupos se distribuyen según la participación de cada programa y jornada en el reporte. "
+            "La meta ingresada ya contiene el crecimiento deseado; no se añade otro 5 % ni reposiciones fuera de ella. "
+            "Los aprendices que pasan se estiman con el tamaño configurado de ficha porque el reporte no incluye matrícula real."
+        ),
+    }
 
 
 def project_curricular_intakes(manual, imported, targets, rules):

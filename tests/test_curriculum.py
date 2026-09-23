@@ -211,9 +211,8 @@ def test_save_reload_export_freezes_catalog(tmp_path, curriculum_catalog, curric
 def test_real_report_identifies_all_missing_programs(curriculum_catalog):
     frame = parse_fichas_excel(Path(__file__).parents[1] / "data" / "reporteFichas_2026_4.xlsx")
     instructors = parse_instructors_excel(Path(__file__).parent / "fixtures" / "reporteInstructores.xlsx")
-    imported = prepare_ficha_import(frame, instructors, curriculum_catalog, 2027, "reporte.xlsx", "real", 2026, 4)
     with pytest.raises(ValueError, match="Faltan mallas curriculares") as error:
-        execute_curriculum_plan(instructors, imported, curriculum_catalog, PlanningRules(), {"Técnico": 558, "Tecnólogo": 2126}, 2027, "instructores.xlsx", "real")
+        prepare_ficha_import(frame, instructors, curriculum_catalog, 2027, "reporte.xlsx", "real", 2026, 4)
     assert "PROGRAMACION DE SOFTWARE" in str(error.value)
     assert "ANALISIS Y DESARROLLO DE SOFTWARE" not in str(error.value)
 

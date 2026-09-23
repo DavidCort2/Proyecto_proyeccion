@@ -14,8 +14,11 @@ def prepare_ficha_import(frame, instructors, catalog, planning_year, source_name
     detail, summary = project_ficha_carryover(
         frame, report_year, report_quarter, planning_year, group_by_profile=True,
         curriculum_durations=duration_lookup(catalog))
+    curricula = curriculum_lookup(catalog)
+    detail["Archivo malla"] = [curricula[curriculum_key(row["Especialidad"], row["Jornada"])]["source_name"]
+                               for row in detail.to_dict("records")]
     summary = merge_ficha_specialties(summary, technical_specialty_catalog(instructors))
-    return {"schema_version": 4, "source_name": source_name, "source_digest": source_digest,
+    return {"schema_version": 5, "source_name": source_name, "source_digest": source_digest,
             "report_year": report_year, "report_quarter": report_quarter, "planning_year": planning_year,
             "schedule_overrides": {}, "rows": records(frame), "detail": records(detail), "summary": records(summary)}
 
@@ -104,7 +107,14 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
     execution = execute_level_plan(instructors, manual, rules, targets, year, source_name, source_digest,
                                    ficha_import=imported, curriculum_catalog=catalog)
     execution["ficha_import"] = imported
-    execution["planning_mode"] = "curricula_v4"
+    execution["planning_mode"] = "curricula_v5"
+    execution["duration_basis"] = (
+        "La duración de cada programa y jornada es el número de trimestres consecutivos de su malla. "
+        "El trimestre del reporte se considera en curso: el fin se obtiene sumando los trimestres pendientes "
+        "a ese período calendario. Cada ficha nueva comienza en el trimestre 1 de formación de su oferta. "
+        "Las fechas de fin corresponden al último día del trimestre, no a una fecha diaria de certificación. "
+        "No se sustituyen mallas ausentes por duraciones de referencia ni por otra jornada."
+    )
     execution["contracting_basis"] = "La capacidad disponible incluye únicamente planta. La contratación se proyecta completa por perfil y por período según las horas de las mallas."
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods

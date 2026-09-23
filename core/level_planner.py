@@ -99,11 +99,11 @@ def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year
         raise ValueError(" ".join(errors))
     if instructors.empty or not 2000 <= planning_year <= 2200:
         raise ValueError("Revise el reporte de instructores y la vigencia a planear.")
-    if curricular_import is None:
-        distribution, levels, minimums = project_by_level(manual, instructors, targets, rules)
-    else:
-        from core.curriculum_intakes import project_curricular_intakes
-        distribution, levels, minimums = project_curricular_intakes(manual, curricular_import, targets, rules)
+    if curricular_import is not None:
+        from core.curriculum_intakes import initialize_curricular_plan
+        return initialize_curricular_plan(instructors, manual, curricular_import, targets, rules,
+                                          planning_year, source_name, source_digest)
+    distribution, levels, minimums = project_by_level(manual, instructors, targets, rules)
     hours = hours_by_profile(distribution, rules)
     totals = distribution.groupby("Especialidad", as_index=False)[["Fichas nuevas", "Fichas que pasan", "Fichas que terminan"]].sum()
     demands = hours.groupby("Especialidad")["Técnicas (h/sem)"].sum().to_dict()
@@ -143,22 +143,10 @@ def _execute_unscheduled_plan(instructors, manual, rules, targets, planning_year
         "summary": staffing_summary(technical, transversal, rules),
         "resources": records(plant_resource_summary(instructors, rules)),
     }
-    if curricular_import is None:
-        execution["growth_rule"] = {"percent": 5, "basis": "per_specialty_and_level", "rows": minimums,
-                                    "new_fichas": sum(row["Mínimo de fichas nuevas"] for row in minimums),
-                                    "replacement_fichas": sum(row["Fichas que terminan"] for row in minimums),
-                                    "growth_fichas": sum(row["Crecimiento mínimo (5 %)"] for row in minimums)}
-    else:
-        from core.curriculum_intakes import TARGET_BASIS
-        execution["target_basis"] = TARGET_BASIS
-        execution["intake_allocation"] = minimums
-        execution["intake_basis"] = (
-            "La meta incluye aprendices de las fichas que pasan y de las nuevas, contados una sola vez. "
-            "Las nuevas cubren el saldo dividido entre aprendices por ficha, redondeado por nivel. "
-            "Los cupos se distribuyen según la participación de cada programa y jornada en el reporte. "
-            "La meta ingresada ya contiene el crecimiento deseado; no se añade otro 5 % ni reposiciones fuera de ella. "
-            "Los aprendices que pasan se estiman con el tamaño configurado de ficha porque el reporte no incluye matrícula real."
-        )
+    execution["growth_rule"] = {"percent": 5, "basis": "per_specialty_and_level", "rows": minimums,
+                                "new_fichas": sum(row["Mínimo de fichas nuevas"] for row in minimums),
+                                "replacement_fichas": sum(row["Fichas que terminan"] for row in minimums),
+                                "growth_fichas": sum(row["Crecimiento mínimo (5 %)"] for row in minimums)}
     return execution
 
 
@@ -168,10 +156,15 @@ def execute_level_plan(instructors, manual, rules, targets, planning_year, sourc
     from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
     from core.transversal_capacity import apply_transversal_capacity
 
+    if curriculum_catalog is not None and ficha_import is None:
+        raise ValueError("La planeación curricular requiere el reporte de fichas para determinar sus trimestres y terminaciones.")
     manual = validate_profiles(manual, instructors)
     if manual.empty:
         raise ValueError("Agregue al menos una especialidad, nivel y jornada para planear.")
-    endings = validate_endings(manual, suggested_endings(manual, ficha_import) if quarter_endings is None else quarter_endings)
+    if curriculum_catalog is not None:
+        endings = validate_endings(manual, suggested_endings(manual, ficha_import, strict=True))
+    else:
+        endings = validate_endings(manual, suggested_endings(manual, ficha_import) if quarter_endings is None else quarter_endings)
     effective = manual.copy()
     # Las fichas que finalizan en T4 se reemplazan en T1 de la siguiente vigencia.
     effective["Fichas que terminan"] = endings[["Terminan T1", "Terminan T2", "Terminan T3"]].sum(axis=1)

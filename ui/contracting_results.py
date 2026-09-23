@@ -54,6 +54,10 @@ def render_contracting_details(execution):
 
 
 def render_planning_details(execution, instructors):
+    with st.expander("Duración y terminación de las fichas del reporte"):
+        if execution.get("duration_basis"):
+            st.caption(execution["duration_basis"])
+        st.dataframe(pd.DataFrame(execution["ficha_import"]["detail"]), hide_index=True, use_container_width=True)
     with st.expander("Demanda y contratación por mes"):
         st.caption(execution["monthly_basis"])
         st.dataframe(pd.DataFrame(execution["monthly"]), hide_index=True, use_container_width=True)

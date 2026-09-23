@@ -106,7 +106,7 @@ def test_automatic_flow_import_execute_export_and_reopen(app_args):
     button(app, "Ejecutar y guardar planeación").click().run()
     assert not app.exception
     saved = load_planning(app_args[0])[1]
-    assert saved["planning_mode"] == "curricula_v4"
+    assert saved["planning_mode"] == "curricula_v5"
     assert [item.label for item in app.metric[:4]] == ["Total de contratistas requeridos", "Trimestre del pico máximo", "Técnicos en el pico", "Transversales en el pico"]
     assert sum(item.label == "Total de contratistas requeridos" for item in app.metric) == 1
     assert not any("actuales" in item.label.lower() or "adicionales" in item.label.lower() for item in app.metric)
@@ -128,6 +128,9 @@ def test_automatic_flow_import_execute_export_and_reopen(app_args):
     detail = next(item for item in reopened.tabs[0].expander if item.label == "Contratistas requeridos y fecha de finalización")
     assert {"Instructor proyectado", "Perfil", "Requerido desde", "Requerido hasta"}.issubset(detail.dataframe[0].value.columns)
     assert detail.dataframe[0].value["Requerido hasta"].notna().all()
+    endings = next(item for item in reopened.tabs[0].expander if item.label == "Duración y terminación de las fichas del reporte")
+    assert {"Archivo malla", "Duración (trimestres)", "Fecha fin estimada", "Trimestres pendientes al iniciar la vigencia"}.issubset(endings.dataframe[0].value.columns)
+    assert endings.dataframe[0].value["Fecha fin estimada"].eq("2027-03-31").all()
 
 
 def test_unique_classification_save_and_pending_execution(app_args):

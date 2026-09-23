@@ -57,6 +57,8 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
                 pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
             pd.DataFrame([{"Criterio de períodos": execution["contracting_periods_basis"]}]).to_excel(writer, sheet_name="Criterio de contratacion", index=False)
         if execution.get("curriculum_catalog"):
+            if execution.get("duration_basis"):
+                pd.DataFrame([{"Criterio de duración y terminación": execution["duration_basis"]}]).to_excel(writer, sheet_name="Criterio de duraciones", index=False)
             catalog = execution["curriculum_catalog"]
             pd.DataFrame([{key: value for key, value in item.items() if key != "outcomes"}
                           for item in catalog["curricula"]]).to_excel(writer, sheet_name="Mallas curriculares", index=False)

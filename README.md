@@ -47,11 +47,12 @@ El catálogo existente se migra automáticamente sin volver a cargar los Excel: 
 
 ## Cálculo de las horas
 
-La duración proviene del número de trimestres de la malla. Las continuaciones avanzan desde el trimestre de formación del reporte hasta el inicio de la vigencia. Una ficha termina al final de su último trimestre; las nuevas ingresan al principio del trimestre calendario.
+La duración proviene exclusivamente del número de hojas consecutivas `Trimestre N` de la malla del programa y su jornada. No se asignan duraciones por nivel ni se completan mallas ausentes con reglas históricas. Se requieren las mallas de todos los programas/jornadas del reporte para determinar cuáles fichas pasan y cuáles terminan, incluso si la meta es cero. Las continuaciones avanzan desde el trimestre de formación del reporte hasta el inicio de la vigencia. Una ficha termina al final de su último trimestre; las nuevas ingresan al principio del trimestre calendario.
 
 ```text
 Edad en T1 = trimestre cursado + trimestres calendario hasta la vigencia
 Edad de una nueva en Tq = q − trimestre de ingreso + 1
+Período de fin = período calendario del reporte + duración de la malla − trimestre cursado
 Horas trimestrales = SUMA(fichas de la cohorte × horas semanales del resultado
                          × semanas efectivas del trimestre)
 Horas anuales = SUMA(horas de los cuatro trimestres calendario)
@@ -66,9 +67,13 @@ Las horas diurnas y mixtas de referencia no sustituyen las horas curriculares. C
 
 El detalle mensual identifica cada ficha que pasa y crea identificadores de proyección para las nuevas. Solo suma meses a partir de su oferta de ingreso y hasta su terminación. Las semanas trimestrales se reparten por igual: con 12 semanas son 4 por mes. Esta es una distribución indicativa, pues los archivos no contienen fechas diarias, festivos ni horarios de clase. Los totales mensuales deben conciliar con los trimestrales y anuales.
 
-La variante de nombre «Órtesis y prótesis» se vincula con «Prótesis y órtesis». Una ficha O&P/P&O puede usar la malla diurna del mismo programa únicamente si esta confirma diez trimestres y no existe una malla O&P explícita; no toma una diurna regular de siete trimestres.
+La variante de nombre «Órtesis y prótesis» se vincula con «Prótesis y órtesis». Una ficha O&P/P&O requiere la malla explícita de esa jornada; no hereda la diurna aunque esta tenga diez trimestres. Diurna/Diurno, Mixta/Mixto y O&P/P&O son normalizaciones de nombres, no reglas de duración.
 
-Si una combinación con demanda no tiene malla, la ejecución se bloquea e identifica programa y jornada. No se completa con otra malla ni cargas genéricas. El diagnóstico inicial de continuaciones sin malla usa las duraciones históricas, sin habilitar el cálculo final.
+Si falta una malla, se enumeran las combinaciones pendientes antes de proyectar continuaciones. Si el trimestre reportado supera la duración curricular, se identifica la ficha para corregir el reporte o cargar la malla adecuada; no se descarta silenciosamente como terminada. Al reemplazar una malla se recalculan fechas y horas desde las filas originales del reporte, sin usar cantidades o fechas de una ejecución anterior.
+
+En **Duración y terminación de las fichas del reporte** se consultan la malla usada, duración, trimestre de formación al iniciar la vigencia, trimestres pendientes y fecha de fin estimada. **Horas mensuales de cada ficha** también incluye duración, archivo de malla y fecha final para las fichas nuevas, aunque terminen en otra vigencia. Esas fechas representan el cierre del trimestre, no una fecha diaria de certificación. El Excel conserva este detalle y el **Criterio de duraciones**.
+
+Los parámetros editables de capacidad por instructor, aprendices por ficha, semanas efectivas y ofertas siguen siendo entradas del escenario, pues los reportes no suministran todos esos valores. Las horas nominales de jornada no intervienen en ninguna etapa del cálculo curricular. Las reglas del modelo histórico se conservan para sus pruebas de compatibilidad; el flujo principal exige mallas y tiene una prueba que falla si intenta invocar duraciones, crecimiento u horas del modelo anterior. Los valores del calendario (cuatro trimestres y tres meses por trimestre) y las tolerancias de redondeo no representan datos de programas.
 
 ## Fichas e instructores
 

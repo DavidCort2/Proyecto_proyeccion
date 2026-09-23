@@ -11,10 +11,12 @@ ENDING_COLUMNS = [f"Terminan T{quarter}" for quarter in range(1, 5)]
 
 
 def profile_key(row):
-    return tuple(normalize_text(row[column]).rstrip(" .") for column in PROFILE_COLUMNS)
+    from core.curriculum import curriculum_key
+    program, schedule = curriculum_key(row["Especialidad"], row["Jornada"])
+    return program, normalize_text(row["Nivel"]), schedule
 
 
-def suggested_endings(manual, imported=None):
+def suggested_endings(manual, imported=None, *, strict=False):
     """Conserva fechas del reporte; reconcilia cambios manuales sin inventar fichas."""
     weights = {}
     for row in (imported or {}).get("detail", []):
@@ -24,8 +26,14 @@ def suggested_endings(manual, imported=None):
             counts[int(row["Trimestre fin estimado"]) - 1] += 1
     result = manual[PROFILE_COLUMNS].copy()
     for index, row in manual.iterrows():
-        allocation = largest_remainder_allocation(int(row["Fichas que terminan"]), ENDING_COLUMNS,
-                                                 weights.get(profile_key(row), [1] * 4))
+        if strict:
+            counts = weights.get(profile_key(row), [0] * 4)
+            if sum(counts) != int(row["Fichas que terminan"]):
+                raise ValueError(f"{row['Especialidad']} · {row['Jornada']}: las terminaciones no coinciden con las fichas del reporte y sus mallas.")
+            allocation = dict(zip(ENDING_COLUMNS, counts))
+        else:
+            allocation = largest_remainder_allocation(int(row["Fichas que terminan"]), ENDING_COLUMNS,
+                                                     weights.get(profile_key(row), [1] * 4))
         for column, count in allocation.items():
             result.loc[index, column] = count
     return result.reindex(columns=PROFILE_COLUMNS + ENDING_COLUMNS).astype({column: int for column in ENDING_COLUMNS})
@@ -52,6 +60,9 @@ def validate_endings(manual, endings):
 
 def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=None):
     """Reserva reemplazos al trimestre siguiente y prioriza primera oferta adicional."""
+    if durations is not None:
+        from core.curriculum import require_curriculum_durations
+        require_curriculum_durations(distribution, durations)
     rows = []
     for index, row in distribution.iterrows():
         finish = endings.loc[index, ENDING_COLUMNS].astype(int).tolist()
@@ -63,8 +74,9 @@ def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=
             intake = largest_remainder_allocation(additional, range(4), rules.intake_weights)
             starts = [replacements[q] + intake[q] for q in range(4)]
         from core.curriculum import curriculum_key
-        duration = (durations or {}).get(curriculum_key(row["Especialidad"], row["Jornada"]))
-        if duration is None:
+        if durations is not None:
+            duration = int(durations[curriculum_key(row["Especialidad"], row["Jornada"])])
+        else:
             duration = duration_in_quarters(row["Nivel"], row["Jornada"])
         # Una ficha técnica abierta en T1 termina en T3: se reemplaza en T4.
         extra_replacements = [0] * 4
@@ -80,7 +92,9 @@ def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=
                 covered = min(starts[q], pending_replacements)
                 replacements.append(covered)
                 pending_replacements -= covered
-        rates = hours_by_profile(pd.DataFrame([row]), rules).iloc[0]
+        # Las horas curriculares se completan desde resultados por edad, sin
+        # calcular primero una demanda ficticia a partir de la jornada nominal.
+        rates = hours_by_profile(pd.DataFrame([row]), rules).iloc[0] if durations is None else None
         for q in range(4):
             continuing = int(row["Fichas que pasan"]) - sum(finish[:q])
             new_active = sum(starts[start] for start in range(q + 1) if q - start < duration)
@@ -94,10 +108,10 @@ def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=
                     "Fichas activas": active, "Terminan continuaciones": finish[q],
                     "Terminan nuevas": new_ending, "Fichas al cierre": active - finish[q] - new_ending}
             for name, rate in [("totales", "Horas"), ("técnicas", "Técnicas"), ("bilingüismo", "Bilingüismo"), ("integralidad", "Integralidad")]:
-                weekly = active * rates[f"{rate} por ficha (h/sem)"]
+                weekly = active * rates[f"{rate} por ficha (h/sem)"] if rates is not None else 0.0
                 item[f"Horas {name} (h/sem)"] = float(weekly)
                 item[f"Horas {name} del trimestre"] = float(weekly * rules.weeks_per_quarter)
-            item["Horas nuevas del trimestre"] = float(new_active * rates["Horas por ficha (h/sem)"] * rules.weeks_per_quarter)
+            item["Horas nuevas del trimestre"] = float(new_active * rates["Horas por ficha (h/sem)"] * rules.weeks_per_quarter) if rates is not None else 0.0
             rows.append(item)
     return pd.DataFrame(rows)
 
@@ -154,7 +168,7 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     technical = tech_frame.loc[tech_frame.groupby("Especialidad")["Demanda técnica (h/sem)"].idxmax()]
     transversal = trans_frame.loc[trans_frame.groupby("Área")["Demanda (h/sem)"].idxmax()]
     peak = max(quarterly, key=lambda row: (row["contratistas_totales"], row["deficit_total_horas_semana"]))
-    summary = {key: value for key, value in peak.items() if key in execution["summary"]}
+    summary = {key: peak[key] for key in summary}
     summary["trimestre_pico_contratacion"] = peak["Trimestre"]
     summary["horas_a_contratar_anuales"] = sum(row["deficit_total_horas_semana"] * rules.weeks_per_quarter for row in quarterly)
     center = execution["center"]

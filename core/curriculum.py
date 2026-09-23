@@ -56,7 +56,7 @@ def parse_curriculum(content: bytes, filename: str) -> dict:
                     raise ValueError(f"{filename}, {sheet.title}: nombre de hoja sin trimestre. Use Trimestre N.")
                 continue
             quarter = int(match.group(1))
-            if quarter < 1 or quarter > 40 or quarter in quarters:
+            if quarter < 1 or quarter in quarters:
                 raise ValueError(f"{filename}: trimestre duplicado o inválido ({quarter}).")
             quarters.add(quarter)
             header = None
@@ -93,12 +93,12 @@ def parse_curriculum(content: bytes, filename: str) -> dict:
                 count += 1
             if not count:
                 raise ValueError(f"{filename}, {sheet.title}: faltan resultados y horas semanales.")
-        if not quarters or quarters != set(range(1, max(quarters) + 1)):
+        if not quarters or sorted(quarters) != list(range(1, len(quarters) + 1)):
             raise ValueError(f"{filename}: las hojas deben cubrir todos los trimestres desde el 1, sin saltos.")
     finally:
         book.close()
     return {"program": program, "program_key": curriculum_key(program, schedule)[0], "schedule": schedule,
-            "duration": max(quarters), "source_name": Path(filename).name,
+            "duration": len(quarters), "source_name": Path(filename).name,
             "source_digest": sha256(content).hexdigest(), "outcomes": outcomes}
 
 
@@ -118,10 +118,21 @@ def duration_lookup(catalog):
 
 
 def curriculum_lookup(catalog):
-    lookup = {curriculum_key(item["program"], item["schedule"]): item for item in catalog["curricula"]}
-    # O&P es diurna de diez trimestres. Solo admite esta equivalencia si la
-    # malla diurna confirma diez trimestres; nunca toma una diurna regular de 7.
-    for (program, schedule), item in list(lookup.items()):
-        if schedule == "Diurna" and item["duration"] == 10:
-            lookup.setdefault((program, "Diurna O&P"), item)
-    return lookup
+    # Una jornada nunca hereda la duración ni los resultados de otra.
+    return {curriculum_key(item["program"], item["schedule"]): item for item in catalog["curricula"]}
+
+
+def require_curriculum_durations(profiles, durations):
+    """No se puede decidir si una ficha termina sin la malla de su jornada."""
+    missing = {}
+    for row in profiles.to_dict("records"):
+        key = curriculum_key(row["Especialidad"], row["Jornada"])
+        if key not in durations:
+            missing[key] = f"{row['Especialidad']} · {key[1]}"
+        else:
+            value = durations[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 1 or value % 1:
+                raise ValueError(f"{row['Especialidad']} · {key[1]}: duración curricular inválida. Vuelva a cargar la malla.")
+    if missing:
+        raise ValueError("Faltan mallas curriculares: " + "; ".join(sorted(missing.values()))
+                         + ". Cárguelas para determinar las duraciones, las terminaciones y las horas.")
