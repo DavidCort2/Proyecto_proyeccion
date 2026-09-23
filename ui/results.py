@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from core.export import export_planning
-from ui.contracting_results import render_contracting
+from ui.contracting_results import render_contracting, render_intake_offers
 
 
 def render_results(instructors: pd.DataFrame, execution: dict) -> None:
@@ -33,6 +33,7 @@ def render_results(instructors: pd.DataFrame, execution: dict) -> None:
     with summary_tab:
         if plant_only:
             render_contracting(execution)
+        render_intake_offers(execution)
         if "monthly" in execution:
             st.markdown("**Demanda y contratación mensual**")
             st.caption(execution["monthly_basis"])

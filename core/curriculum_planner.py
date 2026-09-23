@@ -145,6 +145,7 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
     execution["calculation_basis"] = (
         "La meta determina cuántas fichas nuevas faltan, descontando las que pasan y usando los aprendices por ficha configurados. "
         "La participación de los programas se obtiene del reporte y las ofertas se distribuyen con los porcentajes configurados. "
+        "Los programas con menor presencia en el reporte tienen prioridad en las primeras ofertas dentro de su nivel. "
         "Las horas se suman desde las mallas según la edad de cada ficha. Por perfil y período se calcula "
         "máximo(horas requeridas − capacidad de planta, 0) / capacidad por contratista, redondeando hacia arriba. "
         "El pico es el máximo simultáneo de esos períodos. No hay una cantidad de instructores predefinida por meta."

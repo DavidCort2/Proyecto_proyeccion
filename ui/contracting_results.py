@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from core.contracting_periods import contracting_headline, individual_contract_periods
+from core.curriculum_intakes import OFFER_COLUMNS
 
 
 def render_contracting_summary(execution):
@@ -54,6 +55,7 @@ def render_contracting_details(execution):
 
 
 def render_planning_details(execution, instructors):
+    render_intake_offers(execution)
     with st.expander("Duración y terminación de las fichas del reporte"):
         if execution.get("duration_basis"):
             st.caption(execution["duration_basis"])
@@ -93,6 +95,22 @@ def render_planning_details(execution, instructors):
                  f"Contratista: {execution['rules']['weekly_contractor_hours']:g} h/semana. "
                  "Contratistas requeridos = horas pendientes después de planta / capacidad por contratista, "
                  "redondeado hacia arriba por perfil y trimestre.")
+
+
+def render_intake_offers(execution):
+    if "offers_by_program" not in execution:
+        return
+    with st.expander("Fichas nuevas por programa y oferta"):
+        st.caption(execution["offer_basis"])
+        programs = pd.DataFrame(execution["offers_by_program"])
+        st.write("**Ingresos proyectados por programa**")
+        st.caption("T1: enero–marzo · T2: abril–junio · T3: julio–septiembre · T4: octubre–diciembre. Las fichas ingresan al inicio de cada oferta.")
+        st.dataframe(programs, hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame([{"Programa": "TOTAL", **programs[[*OFFER_COLUMNS, "Total anual"]].sum().to_dict()}]),
+                     hide_index=True, use_container_width=True)
+        st.write("**Detalle por jornada**")
+        st.dataframe(pd.DataFrame(execution["offers_by_profile"]), hide_index=True, use_container_width=True)
+        st.caption("Son cantidades de fichas nuevas por abrir; sus números oficiales se asignan al matricularlas. Las fichas que pasan se muestran en los otros detalles.")
 
 
 def render_contracting(execution):

@@ -1,5 +1,5 @@
 """Fichas para cubrir la meta una sola vez, sin mínimos adicionales por programa."""
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict
 import math
 from numbers import Real
@@ -12,6 +12,16 @@ from core.workflow import records
 
 
 TARGET_BASIS = "total_learners_including_carryover"
+OFFER_COLUMNS = [f"Oferta T{q}" for q in range(1, 5)]
+OFFER_BASIS = (
+    "La cantidad de fichas de cada programa en el reporte, sumando sus jornadas, se usa como referencia de popularidad; "
+    "no representa solicitudes ni matrícula real. Dentro de cada nivel, los programas con menos fichas tienen prioridad "
+    "en las primeras ofertas y los de mayor presencia cubren los cupos posteriores. "
+    "Se conservan las fichas nuevas anuales de cada programa y jornada y los porcentajes de oferta configurados, "
+    "redondeados a fichas completas. Por eso un programa puede aparecer en varias ofertas. "
+    "En caso de igual presencia, se reparten los cupos proporcionalmente a las fichas nuevas pendientes de esos programas. "
+    "Cada ingreso inicia en el trimestre 1 de su malla; desde allí se calculan sus horas y la contratación."
+)
 
 
 def initialize_curricular_plan(instructors, manual, imported, targets, rules, year, source_name, source_digest):
@@ -85,17 +95,69 @@ def project_curricular_intakes(manual, imported, targets, rules):
     return result, pd.DataFrame(levels), audit
 
 
-def curricular_offer_schedule(distribution, rules):
-    """Conserva simultáneamente el total anual por perfil y por oferta de cada nivel."""
+def _offer_profile(row):
+    return (*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))
+
+
+def curricular_offer_schedule(distribution, rules, allocation):
+    """Prioriza menor presencia sin cambiar las cuotas anuales ni los cupos por oferta."""
+    census = {_offer_profile(row): int(row["Fichas del reporte"]) for row in allocation}
+    profiles = {index: _offer_profile(row) for index, row in distribution.iterrows()}
+    if (len(census) != len(allocation) or len(set(profiles.values())) != len(distribution)
+            or set(census) != set(profiles.values()) or any(count <= 0 for count in census.values())):
+        raise ValueError("Las ofertas necesitan la cantidad de fichas del reporte de cada programa, nivel y jornada.")
     schedule = {index: [0] * 4 for index in distribution.index}
     for _, group in distribution.groupby("Nivel", sort=False):
         remaining = {index: int(group.loc[index, "Fichas nuevas"]) for index in group.index}
+        program_profiles = defaultdict(list)
+        for index in group.index:
+            program_profiles[profiles[index][0]].append(index)
+        # Orden estable solo para desempatar residuos enteros, nunca para inferir popularidad.
+        program_profiles = {program: sorted(indices, key=lambda i: profiles[i])
+                            for program, indices in sorted(program_profiles.items())}
+        presence = {program: sum(census[profiles[i]] for i in indices)
+                    for program, indices in program_profiles.items()}
         offers = largest_remainder_allocation(sum(remaining.values()), range(4), rules.intake_weights)
         for q, total in offers.items():
-            assigned = largest_remainder_allocation(total, group.index, [remaining[i] for i in group.index])
-            for index, count in assigned.items():
-                schedule[index][q] = count
-                remaining[index] -= count
+            slots = total
+            for count in sorted(set(presence.values())):
+                programs = [program for program in program_profiles if presence[program] == count]
+                pending = [sum(remaining[i] for i in program_profiles[program]) for program in programs]
+                take = min(slots, sum(pending))
+                if not take:
+                    continue
+                assigned = largest_remainder_allocation(take, programs, pending)
+                for program, new in assigned.items():
+                    indices = program_profiles[program]
+                    shifts = largest_remainder_allocation(new, indices, [remaining[i] for i in indices])
+                    for index, value in shifts.items():
+                        schedule[index][q] += value
+                        remaining[index] -= value
+                slots -= take
+                if not slots:
+                    break
+            if slots:
+                raise ValueError("No hay suficientes fichas nuevas para completar los cupos de la oferta.")
         if any(remaining.values()):
             raise ValueError("La distribución por ofertas no coincide con las fichas nuevas de la meta.")
     return schedule
+
+
+def curricular_offer_tables(calendar, allocation):
+    """Resume el mismo calendario usado para calcular horas; no genera otra proyección."""
+    counts = defaultdict(lambda: [0] * 4)
+    for row in calendar.to_dict("records"):
+        counts[_offer_profile(row)][int(row["Trimestre"]) - 1] += int(row["Fichas nuevas"])
+    rows = []
+    for row in allocation:
+        offers = counts[_offer_profile(row)]
+        if sum(offers) != row["Fichas nuevas asignadas"]:
+            raise ValueError("El calendario de ofertas no coincide con la asignación anual del programa.")
+        rows.append({"Programa": row["Especialidad"], "Nivel": row["Nivel"], "Jornada": row["Jornada"],
+                     "Fichas del reporte": row["Fichas del reporte"],
+                     **dict(zip(OFFER_COLUMNS, offers)), "Total anual": sum(offers)})
+    profiles = pd.DataFrame(rows, columns=["Programa", "Nivel", "Jornada", "Fichas del reporte", *OFFER_COLUMNS, "Total anual"])
+    programs = profiles.groupby(["Programa", "Nivel"], as_index=False)[["Fichas del reporte", *OFFER_COLUMNS, "Total anual"]].sum()
+    programs = programs.sort_values(["Nivel", "Fichas del reporte", "Programa"])
+    profiles = profiles.sort_values(["Nivel", "Programa", "Jornada"])
+    return records(programs), records(profiles)

@@ -21,6 +21,13 @@ def verify(plan):
             pending = max(0, level["Meta de aprendices"] - level["Fichas que pasan"] * plan["rules"]["learners_per_ficha"])
             assert level["Fichas nuevas"] == math.ceil(pending / plan["rules"]["learners_per_ficha"])
         assert plan["center"]["nuevas_adicionales_por_rotacion"] == 0
+    if "offers_by_program" in plan:
+        assert sum(row["Total anual"] for row in plan["offers_by_program"]) == plan["center"]["fichas_nuevas"]
+        for table in (plan["offers_by_program"], plan["offers_by_profile"]):
+            for row in table:
+                assert sum(row[f"Oferta T{q}"] for q in range(1, 5)) == row["Total anual"]
+            for quarter in plan["quarterly"]:
+                assert sum(row[f"Oferta T{quarter['Trimestre']}"] for row in table) == quarter["Fichas nuevas"]
     for quarter in plan["quarterly"]:
         months = [row for row in plan["monthly"] if row["Trimestre"] == quarter["Trimestre"]]
         assert math.isclose(sum(row["Horas requeridas"] for row in months), quarter["Horas requeridas"])

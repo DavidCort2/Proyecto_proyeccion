@@ -134,6 +134,11 @@ def test_automatic_flow_import_execute_export_and_reopen(app_args):
     audit = next(item for item in reopened.tabs[0].expander if item.label == "Reglas utilizadas en el cálculo")
     assert {"Parámetro", "Valor", "Origen"}.issubset(audit.dataframe[0].value.columns)
     assert "Meta total · Tecnólogo" in audit.dataframe[0].value["Parámetro"].tolist()
+    offers = next(item for item in reopened.tabs[0].expander if item.label == "Fichas nuevas por programa y oferta")
+    pd.testing.assert_frame_equal(offers.dataframe[0].value, pd.DataFrame(saved["offers_by_program"]))
+    pd.testing.assert_frame_equal(offers.dataframe[2].value, pd.DataFrame(saved["offers_by_profile"]))
+    assert offers.dataframe[0].value.iloc[0][["Oferta T1", "Oferta T2", "Oferta T3", "Oferta T4", "Total anual"]].tolist() == [2, 0, 0, 0, 2]
+    assert offers.dataframe[1].value.iloc[0]["Total anual"] == saved["center"]["fichas_nuevas"]
 
 
 def test_unique_classification_save_and_pending_execution(app_args):
