@@ -9,6 +9,7 @@ import pandas as pd
 from core.curriculum import curriculum_key, name_key
 from core.planner import fichas_from_target, largest_remainder_allocation, plant_resource_summary
 from core.workflow import records
+from core.program_transitions import TRANSITION_BASIS, active_program, is_popular, is_retired, program_key
 
 
 TARGET_BASIS = "total_learners_including_carryover"
@@ -28,7 +29,7 @@ def initialize_curricular_plan(instructors, manual, imported, targets, rules, ye
     """Prepara fichas y recursos; las horas se calculan después desde las mallas."""
     distribution, levels, audit = project_curricular_intakes(manual, imported, targets, rules)
     continuing = int(distribution["Fichas que pasan"].sum())
-    return {
+    execution = {
         "planning_year": year, "source_name": source_name, "source_digest": source_digest,
         "targets_by_level": targets, "target_learners": sum(targets.values()),
         "continuing_fichas": continuing, "rules": asdict(rules),
@@ -47,6 +48,11 @@ def initialize_curricular_plan(instructors, manual, imported, targets, rules, ye
             "Los aprendices que pasan se estiman con el tamaño configurado de ficha porque el reporte no incluye matrícula real."
         ),
     }
+    if imported.get("program_transitions"):
+        execution["program_transitions"] = imported["program_transitions"]
+        execution["program_transition_basis"] = TRANSITION_BASIS
+        execution["intake_basis"] += " " + TRANSITION_BASIS
+    return execution
 
 
 def project_curricular_intakes(manual, imported, targets, rules):
@@ -57,6 +63,7 @@ def project_curricular_intakes(manual, imported, targets, rules):
         raise ValueError("Indique metas de aprendices enteras y no negativas para Técnico y Tecnólogo.")
     result = manual.copy()
     result["Fichas nuevas"] = 0
+    transitions = imported.get("program_transitions", [])
     census = Counter()
     for row in imported["detail"]:
         census[(*curriculum_key(row["Especialidad"], row["Jornada de planeación"]), name_key(row["Nivel"]))] += 1
@@ -70,7 +77,9 @@ def project_curricular_intakes(manual, imported, targets, rules):
     else:
         weights = {index: census[(*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))]
                    for index, row in result.iterrows()}
-        if any(weight <= 0 for weight in weights.values()) or sum(weights.values()) != len(imported["detail"]):
+        added = {_offer_profile(row) for row in imported.get("successor_profiles", [])}
+        if (any(weight <= 0 and _offer_profile(result.loc[index]) not in added for index, weight in weights.items())
+                or sum(weights.values()) != len(imported["detail"])):
             raise ValueError("La distribución de programas debe corresponder a las fichas del reporte; no se pueden asignar proporciones predeterminadas.")
     levels, audit = [], []
     for level in ("Técnico", "Tecnólogo"):
@@ -83,23 +92,37 @@ def project_curricular_intakes(manual, imported, targets, rules):
         new = fichas_from_target(pending, rules.learners_per_ficha)
         if subset.empty and new:
             raise ValueError(f"Se necesita un programa de {level} en el reporte para distribuir la meta.")
-        programs = list(subset["Especialidad"].drop_duplicates())
-        program_weights = [sum(weights[i] for i in subset.index if subset.loc[i, "Especialidad"] == program) for program in programs]
+        families = subset["Especialidad"].map(lambda name: active_program(name, transitions))
+        programs = list(families.drop_duplicates())
+        program_weights = [sum(weights[i] for i in subset.index if families.loc[i] == program) for program in programs]
         program_allocation = largest_remainder_allocation(new, programs, program_weights)
         for program, count in program_allocation.items():
-            group = subset.loc[subset["Especialidad"] == program]
-            shifts = largest_remainder_allocation(count, group.index, [weights[i] for i in group.index])
+            family = subset.loc[families == program]
+            group = family.loc[~family["Especialidad"].map(lambda name: is_retired(name, transitions))]
+            if count and group.empty:
+                raise ValueError(f"Cargue la malla de {program} para proyectar sus nuevos ingresos; el programa anterior ya no se oferta.")
+            shift_weights = [sum(weights[i] for i in family.index if family.loc[i, "Jornada"] == row["Jornada"])
+                             for _, row in group.iterrows()]
+            if count and not sum(shift_weights):
+                if len(group) != 1:
+                    raise ValueError(f"Revise las jornadas de la malla vigente de {program}; no coinciden con el reporte.")
+                shift_weights = [sum(weights[i] for i in family.index)]
+            shifts = largest_remainder_allocation(count, group.index, shift_weights)
             for index, assigned in shifts.items():
                 result.loc[index, "Fichas nuevas"] = assigned
-                audit.append({"Especialidad": program, "Nivel": level, "Jornada": result.loc[index, "Jornada"],
-                              "Fichas del reporte": weights[index], "Fichas que pasan": int(result.loc[index, "Fichas que pasan"]),
-                              "Fichas nuevas asignadas": assigned})
+        for index, row in subset.iterrows():
+            audit.append({"Especialidad": row["Especialidad"], "Nivel": level, "Jornada": row["Jornada"],
+                          "Fichas del reporte": weights[index], "Fichas que pasan": int(row["Fichas que pasan"]),
+                          "Fichas nuevas asignadas": int(result.loc[index, "Fichas nuevas"]),
+                          **({"Programa de planeación": active_program(row["Especialidad"], transitions)} if transitions else {})})
         levels.append({"Nivel": level, "Meta de aprendices": target, "Fichas según meta": total_fichas,
                        "Fichas que pasan": continuing, "Aprendices que pasan (estimados)": continuing_learners,
                        "Aprendices pendientes de ingresar": pending, "Fichas nuevas necesarias": new,
                        "Fichas nuevas": new, "Fichas sobre la meta": max(0, continuing + new - total_fichas),
                        "Cupos nuevos": new * rules.learners_per_ficha,
                        "Cupos proyectados": (continuing + new) * rules.learners_per_ficha})
+    if transitions:
+        result["Programa de planeación"] = result["Especialidad"].map(lambda name: active_program(name, transitions))
     return result, pd.DataFrame(levels), audit
 
 
@@ -107,29 +130,32 @@ def _offer_profile(row):
     return (*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))
 
 
-def curricular_offer_schedule(distribution, rules, allocation):
+def curricular_offer_schedule(distribution, rules, allocation, transitions=()):
     """Prioriza menor presencia sin cambiar las cuotas anuales ni los cupos por oferta."""
     census = {_offer_profile(row): int(row["Fichas del reporte"]) for row in allocation}
     profiles = {index: _offer_profile(row) for index, row in distribution.iterrows()}
     if (len(census) != len(allocation) or len(set(profiles.values())) != len(distribution)
-            or set(census) != set(profiles.values()) or any(count <= 0 for count in census.values())):
+            or set(census) != set(profiles.values())
+            or any(count < 0 or (count == 0 and not any(key[0] == program_key(row["current"]) for row in transitions))
+                   for key, count in census.items())):
         raise ValueError("Las ofertas necesitan la cantidad de fichas del reporte de cada programa, nivel y jornada.")
     schedule = {index: [0] * 4 for index in distribution.index}
     for _, group in distribution.groupby("Nivel", sort=False):
         remaining = {index: int(group.loc[index, "Fichas nuevas"]) for index in group.index}
         program_profiles = defaultdict(list)
         for index in group.index:
-            program_profiles[profiles[index][0]].append(index)
+            program_profiles[program_key(active_program(group.loc[index, "Especialidad"], transitions))].append(index)
         # Orden estable solo para desempatar residuos enteros, nunca para inferir popularidad.
         program_profiles = {program: sorted(indices, key=lambda i: profiles[i])
                             for program, indices in sorted(program_profiles.items())}
         presence = {program: sum(census[profiles[i]] for i in indices)
                     for program, indices in program_profiles.items()}
+        priority = {program: (is_popular(program, transitions), count) for program, count in presence.items()}
         offers = largest_remainder_allocation(sum(remaining.values()), range(4), rules.intake_weights)
         for q, total in offers.items():
             slots = total
-            for count in sorted(set(presence.values())):
-                programs = [program for program in program_profiles if presence[program] == count]
+            for rank in sorted(set(priority.values())):
+                programs = [program for program in program_profiles if priority[program] == rank]
                 pending = [sum(remaining[i] for i in program_profiles[program]) for program in programs]
                 take = min(slots, sum(pending))
                 if not take:
@@ -151,7 +177,7 @@ def curricular_offer_schedule(distribution, rules, allocation):
     return schedule
 
 
-def curricular_offer_tables(calendar, allocation):
+def curricular_offer_tables(calendar, allocation, transitions=()):
     """Resume el mismo calendario usado para calcular horas; no genera otra proyección."""
     counts = defaultdict(lambda: [0] * 4)
     for row in calendar.to_dict("records"):
@@ -161,11 +187,15 @@ def curricular_offer_tables(calendar, allocation):
         offers = counts[_offer_profile(row)]
         if sum(offers) != row["Fichas nuevas asignadas"]:
             raise ValueError("El calendario de ofertas no coincide con la asignación anual del programa.")
-        rows.append({"Programa": row["Especialidad"], "Nivel": row["Nivel"], "Jornada": row["Jornada"],
+        rows.append({"Programa": active_program(row["Especialidad"], transitions), "Nivel": row["Nivel"], "Jornada": row["Jornada"],
                      "Fichas del reporte": row["Fichas del reporte"],
                      **dict(zip(OFFER_COLUMNS, offers)), "Total anual": sum(offers)})
     profiles = pd.DataFrame(rows, columns=["Programa", "Nivel", "Jornada", "Fichas del reporte", *OFFER_COLUMNS, "Total anual"])
+    profiles = profiles.groupby(["Programa", "Nivel", "Jornada"], as_index=False)[["Fichas del reporte", *OFFER_COLUMNS, "Total anual"]].sum()
     programs = profiles.groupby(["Programa", "Nivel"], as_index=False)[["Fichas del reporte", *OFFER_COLUMNS, "Total anual"]].sum()
     programs = programs.sort_values(["Nivel", "Fichas del reporte", "Programa"])
     profiles = profiles.sort_values(["Nivel", "Programa", "Jornada"])
+    if transitions:
+        for frame in (programs, profiles):
+            frame["Criterio de oferta"] = frame["Programa"].map(lambda name: "Popular · indicado por el usuario" if is_popular(name, transitions) else "Según fichas del reporte")
     return records(programs), records(profiles)

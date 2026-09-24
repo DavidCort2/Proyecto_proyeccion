@@ -16,6 +16,13 @@ from core.export import export_planning
 
 
 def verify(plan):
+    if plan.get("program_transitions"):
+        from core.program_transitions import program_key
+        retired = {program_key(row["previous"]) for row in plan["program_transitions"]}
+        assert all(row["Fichas nuevas"] == 0 for row in plan["calendar"] if program_key(row["Especialidad"]) in retired)
+        assert all(program_key(row["Programa"]) not in retired for row in plan["offers_by_program"])
+        assert all(program_key(row["Especialidad"]) not in retired for row in plan["technical_quarterly"])
+        assert all(program_key(row["Perfil"]) not in retired for row in plan["monthly_staffing"] if row["Área"] == "Técnica")
     if plan.get("target_basis"):
         for level in plan["levels"]:
             pending = max(0, level["Meta de aprendices"] - level["Fichas que pasan"] * plan["rules"]["learners_per_ficha"])

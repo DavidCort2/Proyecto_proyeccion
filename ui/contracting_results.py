@@ -4,6 +4,7 @@ import streamlit as st
 
 from core.contracting_periods import contracting_headline, individual_contract_periods
 from core.curriculum_intakes import OFFER_COLUMNS
+from core.program_transitions import transition_rows
 
 
 def render_contracting_summary(execution):
@@ -56,6 +57,10 @@ def render_contracting_details(execution):
 
 def render_planning_details(execution, instructors):
     render_intake_offers(execution)
+    if execution.get("program_transitions"):
+        with st.expander("Programas actualizados y planta compartida"):
+            st.caption(execution["program_transition_basis"])
+            st.dataframe(pd.DataFrame(transition_rows(execution["program_transitions"])), hide_index=True, use_container_width=True)
     virtual = execution.get("input_mode") == "virtual_manual"
     with st.expander("Duración y terminación de las fichas manuales" if virtual else "Duración y terminación de las fichas del reporte"):
         if execution.get("duration_basis"):
@@ -83,6 +88,8 @@ def render_planning_details(execution, instructors):
     with st.expander("Comprobar horas por competencia, trimestre y resultado"):
         st.dataframe(pd.DataFrame(execution["curriculum_hours"]), hide_index=True, use_container_width=True)
     with st.expander("Cobertura de planta"):
+        if execution.get("program_transitions"):
+            st.caption("El reporte conserva el nombre original del programa. La capacidad y la contratación se agrupan por el programa vigente indicado en «Programas actualizados y planta compartida».")
         if execution.get("plant_basis"):
             st.caption(execution["plant_basis"])
         st.dataframe(instructors.loc[instructors["Es planta"], ["Área", "Especialidad", "Nombre", "Documento"]],

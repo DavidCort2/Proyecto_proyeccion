@@ -119,14 +119,18 @@ def calendar_rows(distribution, endings, rules, durations=None, intake_schedule=
 def apply_calendar(execution, instructors, distribution, endings, rules, *, modules=None, continuing_hours=None, ficha_import=None, curriculum_catalog=None):
     from core.curriculum import duration_lookup
     from core.curriculum_intakes import OFFER_BASIS, curricular_offer_schedule, curricular_offer_tables
+    from core.program_transitions import active_program
+    transitions = execution.get("program_transitions", [])
     # La presencia de mallas obliga al calendario curricular, incluso si falta
     # una etiqueta de una ejecución anterior; nunca activa reposiciones extra.
-    schedule = (curricular_offer_schedule(distribution, rules, execution.get("intake_allocation", []))
+    schedule = (curricular_offer_schedule(distribution, rules, execution.get("intake_allocation", []), transitions)
                 if curriculum_catalog is not None or execution.get("target_basis") else None)
     calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None, schedule)
     if schedule is not None:
-        execution["offers_by_program"], execution["offers_by_profile"] = curricular_offer_tables(calendar, execution["intake_allocation"])
+        execution["offers_by_program"], execution["offers_by_profile"] = curricular_offer_tables(calendar, execution["intake_allocation"], transitions)
         execution["offer_basis"] = OFFER_BASIS
+        if transitions:
+            execution["offer_basis"] += " " + execution["program_transition_basis"]
     if curriculum_catalog is not None:
         from core.curriculum_planner import apply_curriculum_hours
         if modules is not None:
@@ -134,6 +138,10 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
         calendar, audit = apply_curriculum_hours(calendar, curriculum_catalog, ficha_import, execution["planning_year"], rules)
         execution["curriculum_catalog"] = curriculum_catalog
         execution["curriculum_hours"] = audit
+        if transitions:
+            calendar["Programa de planeación"] = calendar["Especialidad"].map(lambda name: active_program(name, transitions))
+            for row in audit:
+                row["Programa de planeación"] = active_program(row["Programa"], transitions)
     if modules is not None:
         from core.transversal_modules import validate_modules, continuing_template, apply_module_hours
         modules = validate_modules(modules, distribution, rules)
@@ -145,7 +153,8 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     execution["transversal_demand_model"] = "curricula" if curriculum_catalog is not None else ("modules" if modules is not None else "weekly")
     technical_rows, transversal_rows, quarterly = [], [], []
     for quarter in range(1, 5):
-        group = calendar.loc[calendar["Trimestre"] == quarter]
+        group = calendar.loc[calendar["Trimestre"] == quarter].copy()
+        group["Especialidad"] = group["Especialidad"].map(lambda name: active_program(name, transitions))
         totals = group.groupby("Especialidad", as_index=False).agg(**{
             "Fichas nuevas": ("Fichas nuevas", "sum"),
             "Fichas que pasan": ("Fichas activas", "sum"),

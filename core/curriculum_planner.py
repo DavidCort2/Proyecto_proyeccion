@@ -18,9 +18,12 @@ def prepare_ficha_import(frame, instructors, catalog, planning_year, source_name
     detail["Archivo malla"] = [curricula[curriculum_key(row["Especialidad"], row["Jornada"])]["source_name"]
                                for row in detail.to_dict("records")]
     summary = merge_ficha_specialties(summary, technical_specialty_catalog(instructors))
+    from core.program_transitions import prepare_transition_profiles
+    summary, transitions, added = prepare_transition_profiles(summary, detail, instructors, catalog)
     return {"schema_version": 5, "source_name": source_name, "source_digest": source_digest,
             "report_year": report_year, "report_quarter": report_quarter, "planning_year": planning_year,
-            "schedule_overrides": {}, "rows": records(frame), "detail": records(detail), "summary": records(summary)}
+            "schedule_overrides": {}, "rows": records(frame), "detail": records(detail), "summary": records(summary),
+            "program_transitions": transitions, "successor_profiles": added}
 
 
 def curriculum_coverage(profiles, catalog):
@@ -119,6 +122,8 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
 
     manual = validate_profiles(pd.DataFrame(imported["summary"], columns=MANUAL_COLUMNS), instructors)
     endings = validate_endings(manual, suggested_endings(manual, imported, strict=True))
+    from core.program_transitions import shared_plant
+    instructors = shared_plant(instructors, imported.get("program_transitions", []))
     # Este recorrido no llama al planificador histórico ni a sus reglas de crecimiento.
     execution = initialize_curricular_plan(instructors, manual, imported, targets, rules, year, source_name, source_digest)
     execution = apply_calendar(execution, instructors, pd.DataFrame(execution["distribution"]), endings, rules,
@@ -155,6 +160,8 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
         "máximo(horas requeridas − capacidad de planta, 0) / capacidad por contratista, redondeando hacia arriba. "
         "El pico es el máximo simultáneo de esos períodos. No hay una cantidad de instructores predefinida por meta."
     )
+    if execution.get("program_transitions"):
+        execution["calculation_basis"] += " " + execution["program_transition_basis"]
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods
     return apply_contracting_periods(apply_monthly_plan(execution, instructors, rules), rules)

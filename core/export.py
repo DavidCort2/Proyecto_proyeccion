@@ -35,6 +35,10 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
             pd.DataFrame(execution["calculation_parameters"]).to_excel(writer, sheet_name="Parametros usados", index=False)
             pd.DataFrame([{"Cálculo automático": execution["calculation_basis"]}]).to_excel(writer, sheet_name="Criterio de calculo", index=False)
         pd.DataFrame(execution["distribution"]).to_excel(writer, sheet_name="Distribucion", index=False)
+        if execution.get("program_transitions"):
+            from core.program_transitions import transition_rows
+            pd.DataFrame(transition_rows(execution["program_transitions"])).to_excel(writer, sheet_name="Actualizacion de programas", index=False)
+            pd.DataFrame([{"Criterio de actualización": execution["program_transition_basis"]}]).to_excel(writer, sheet_name="Criterio de actualizacion", index=False)
         if "offers_by_program" in execution:
             pd.DataFrame(execution["offers_by_program"]).to_excel(writer, sheet_name="Fichas por oferta", index=False)
             pd.DataFrame(execution["offers_by_profile"]).to_excel(writer, sheet_name="Ofertas por jornada", index=False)

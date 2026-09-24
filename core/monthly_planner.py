@@ -5,6 +5,7 @@ import math
 from core.curriculum import curriculum_key, curriculum_lookup
 from core.ficha_projection import quarter_end_date
 from core.planner import contractors_for_hours
+from core.program_transitions import active_program
 
 MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 COMPONENTS = {"Técnica": "Técnicas", "Bilingüismo": "Bilingüismo", "Integralidad": "Integralidad"}
@@ -15,8 +16,8 @@ MONTHLY_BASIS = (
 )
 
 
-def _pool(area, specialty):
-    return area, curriculum_key(specialty, "Diurna")[0] if area == "Técnica" else area
+def _pool(area, specialty, transitions=()):
+    return area, curriculum_key(active_program(specialty, transitions), "Diurna")[0] if area == "Técnica" else area
 
 
 def monthly_fichas(execution, rules):
@@ -46,6 +47,8 @@ def monthly_fichas(execution, rules):
                         "Fecha fin estimada": quarter_end_date(finish_period),
                         "Cohorte": row["Cohorte"], "Trimestre de formación": row["Trimestre de formación"],
                         "Trimestre": quarter, "Mes número": month, "Mes": MONTHS[month - 1], "Semanas efectivas": weeks}
+                if execution.get("program_transitions"):
+                    item["Programa de planeación"] = active_program(row["Programa"], execution["program_transitions"])
                 for area, label in COMPONENTS.items():
                     item[f"{label} (h/sem)"] = hours[area]
                     item[f"{label} (h/mes)"] = hours[area] * weeks
@@ -56,6 +59,7 @@ def monthly_fichas(execution, rules):
 
 
 def apply_monthly_plan(execution, instructors, rules):
+    transitions = execution.get("program_transitions", [])
     fichas = monthly_fichas(execution, rules)
     weeks = rules.weeks_per_quarter / 3.0
     staff, labels, demands = defaultdict(list), {}, defaultdict(list)
@@ -67,21 +71,21 @@ def apply_monthly_plan(execution, instructors, rules):
         if document and document in documents:
             raise ValueError("Hay documentos de instructores repetidos; no se puede contar su capacidad dos veces.")
         documents.add(document)
-        key = _pool(person["Área"], person["Especialidad"])
+        key = _pool(person["Área"], person["Especialidad"], transitions)
         labels.setdefault(key, person["Especialidad"] if person["Área"] == "Técnica" else person["Área"])
         staff[key].append({"id": f"Planta {document or person['Nombre']}", "name": person["Nombre"], "document": document,
                            "type": "Planta", "weekly": rules.weekly_plant_direct_hours})
     for row in execution["distribution"]:
-        key = _pool("Técnica", row["Especialidad"])
-        labels.setdefault(key, row["Especialidad"])
+        key = _pool("Técnica", row["Especialidad"], transitions)
+        labels.setdefault(key, active_program(row["Especialidad"], transitions))
     for area in ("Bilingüismo", "Integralidad"):
         labels.setdefault(_pool(area, area), area)
     for row in fichas:
         for area, label in COMPONENTS.items():
             hours = row[f"{label} (h/mes)"]
             if hours > 0:
-                key = _pool(area, row["Programa"])
-                labels.setdefault(key, row["Programa"] if area == "Técnica" else area)
+                key = _pool(area, row["Programa"], transitions)
+                labels.setdefault(key, active_program(row["Programa"], transitions) if area == "Técnica" else area)
                 demands[(row["Mes número"], key)].append((row, hours))
 
     staffing, individual, assignments, summary = [], [], [], []
