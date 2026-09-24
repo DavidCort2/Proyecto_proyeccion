@@ -1,6 +1,6 @@
 # Sistema de Planeación Indicativa SENA
 
-Aplicación Python y Streamlit para calcular fichas, horas e instructores por trimestre a partir de las mallas de cada programa y jornada. SQLite conserva las mallas, la clasificación de competencias y la última planeación ejecutada.
+Aplicación Python y Streamlit para calcular fichas, horas e instructores. Titulada presencial usa mallas trimestrales; Titulada virtual usa cronogramas Excel por fases y fechas, con carga docente manual. Cada modalidad tiene entradas, parámetros, catálogos y resultados independientes. SQLite conserva la clasificación y la última planeación ejecutada de cada modalidad.
 
 ## Iniciar
 
@@ -11,9 +11,42 @@ py -m pip install -r requirements.txt
 py -m streamlit run app.py
 ```
 
-La base está en `data/planeacion.sqlite3`. No requiere servidor de base de datos.
+No requiere servidor de base de datos. Titulada presencial conserva la base existente `data/planeacion.sqlite3`; Titulada virtual usa `data/planeacion_virtual.sqlite3`. No se trasladan ni copian automáticamente datos de una modalidad a otra.
 
-## Preparar y ejecutar
+## Navegación
+
+En la barra lateral seleccione **Formación** (Titulada o Complementaria) y **Modalidad** (Presencial o Virtual).
+
+| Espacio | Funcionamiento |
+| --- | --- |
+| Titulada · Presencial | Flujo existente: reportes de planta y fichas, mallas, metas y parámetros. |
+| Titulada · Virtual | Cronogramas Excel por fases; clasificación técnica/transversal, horas docentes, fichas que pasan, planta, metas y ofertas manuales. |
+| Complementaria · Presencial | Espacio vacío, pendiente de implementar. |
+| Complementaria · Virtual | Espacio vacío, pendiente de implementar. |
+
+Los borradores de las dos modalidades de Titulada se conservan al navegar durante la misma sesión. Para conservar la planeación al cerrar el navegador, pulse **Ejecutar y guardar planeación**. Los catálogos y su clasificación tienen sus propios botones de guardado. La limpieza afecta solamente a la modalidad abierta; conserva la otra modalidad y los Excel originales.
+
+## Preparar y ejecutar Titulada virtual
+
+1. Seleccione **Titulada → Virtual**. En **Cronogramas y competencias**, cargue los `.xlsx` y pulse **Importar y guardar cronogramas**. Se admite el formato del **Cronograma General - Analisis y Desarrollo de Software.xlsx** recibido: nombre del programa, fases, actividades del proyecto, actividades de aprendizaje, horas estimadas y fechas. El nombre del archivo es libre; el programa se lee del contenido. Virtual no solicita PDF ni reportes de planta/fichas.
+2. Revise las observaciones del archivo. Por cada resultado/actividad lectiva elija **Técnico** o **Transversal** e ingrese las **horas totales de instructor por ficha para la actividad completa**. Pulse **Guardar clasificación y horas**. Las horas estimadas de formación del Excel permanecen como referencia. Un campo vacío queda pendiente: use **0** explícito donde no se requieran horas docentes. La etapa productiva y su seguimiento están excluidos del editor, de las horas y de la contratación, incluso si tenían horas manuales guardadas.
+3. En **Datos manuales y parámetros**, indique vigencia, metas por nivel, aprendices por ficha y capacidades semanales de planta/contratistas. Configure los porcentajes de las **cuatro ofertas** (suman 100 %) y sus fechas de inicio. Las fechas se exigen en las ofertas que reciben fichas. Virtual no usa jornadas ni semanas por trimestre.
+4. En **Programas a planear**, seleccione nivel, programas incluidos y **Peso de oferta**. Este peso determina la participación anual dentro de cada nivel, con redondeo a fichas completas. El total se reparte entre las ofertas conservando las cantidades anuales por programa y nivel.
+5. En **Fichas que pasan**, registre programa, cantidad y **fecha de inicio de formación**. Use filas distintas si las fechas de inicio son diferentes. El cronograma permite ubicar fases pendientes y estimar terminación. Deje vacío si no hay continuaciones.
+6. En **Instructores de planta**, seleccione **Tipo**, **Perfil** y cantidad: para Técnico, el programa; para Transversal, el código de competencia clasificado en los cronogramas. La capacidad transversal se comparte entre programas con esa competencia. Son cupos sin datos personales y cada instructor se cuenta una vez en su perfil. Deje vacío si no hay planta.
+7. En **Planeación**, revise el pico simultáneo técnico/transversal, fechas de contratación, horas anuales, resumen mensual y trazabilidad por actividad. Pulse **Ejecutar y guardar planeación** para conservar datos manuales y habilitar el Excel actualizado.
+
+Las nuevas cubren el saldo de la meta después de descontar los aprendices que pasan, sin crecimiento ni reposiciones adicionales. El calendario virtual traslada los intervalos del cronograma según el inicio de cada cohorte, conservando distancias en días. Las horas docentes se distribuyen uniformemente dentro de cada intervalo como promedio de planeación. Se descuenta planta y se redondea contratación por tipo/perfil al cambiar las actividades. El resumen mensual conserva los picos simultáneos; no representa un horario diario.
+
+Los nombres y duración de las fases proceden del archivo; las cuatro ofertas no equivalen a cuatro fases. El [Manual ZAJUNA del instructor del SENA](https://zajuna.sena.edu.co/pdfs/titulada/manuales/MANUAL%20ZAJUNA%20INSTRUCTOR_compressed.pdf) describe cronogramas, fases, actividades y fechas. Las capacidades y las fechas de ofertas son parámetros del centro, no valores normativos inferidos.
+
+El lector admite las celdas combinadas y nombres de fases partidos del Excel suministrado. Muestra la diferencia de origen entre **3072 horas de bloques lectivos y 3120 del resumen**, sin distribuir automáticamente esas 48 horas. Los detalles y supuestos están en [VALIDACION_MODALIDADES.md](docs/VALIDACION_MODALIDADES.md).
+
+Las ejecuciones virtuales anteriores basadas en trimestres se conservan para descargar. Para recalcular por fases deben cargarse cronogramas y completar fechas y horas; no se convierten edades trimestrales en fechas inventadas.
+
+La planeación virtual cuenta únicamente carga docente de etapa lectiva. Los datos productivos del archivo se conservan identificados como referencia excluida en pantalla y en Excel. Si una ejecución guardada es anterior a esta regla, la vista previa ya la aplica y se debe pulsar **Ejecutar y guardar planeación** para actualizar la descarga. Las fechas generales de formación y el conteo de fichas para metas se mantienen; una ficha que solo está en productiva no genera horas ni contratos.
+
+## Preparar y ejecutar Titulada presencial
 
 1. En **Mallas y competencias**, cargar uno o varios archivos `PROGRAMA - JORNADA.xlsx`, revisar la vista previa y pulsar **Digitalizar y guardar mallas**. Diurna/Diurno y Mixta/Mixto se normalizan. O&P/P&O es una abreviatura del programa y no crea una jornada adicional.
 2. Revisar **Todas las competencias**. Los títulos equivalentes comparten una única competencia. La carga selecciona automáticamente las transversales según el tipo del Excel; cuando falta, reconoce los títulos transversales conocidos. Se pueden corregir **Transversal** y el área Bilingüismo/Integralidad con los campos existentes. **Guardar clasificación de competencias** conserva esa corrección en futuras importaciones.
@@ -28,7 +61,7 @@ En **Contratistas requeridos y fecha de finalización**, cada fila identifica un
 
 Los programas y niveles de la oferta se obtienen del reporte de fichas, incluidas sus combinaciones sin continuaciones. La malla por sí sola no identifica el nivel; para incorporar un programa a la oferta debe estar identificado con su nivel y jornada en el reporte.
 
-## Formato de las mallas
+## Formato de las mallas presenciales
 
 Cada hoja `Trimestre N` representa un trimestre de formación. Deben existir todos desde el 1, sin saltos. Se permiten portadas sin tablas curriculares.
 
@@ -45,7 +78,7 @@ La importación es transaccional. Dos archivos distintos para el mismo programa/
 
 El catálogo existente se migra automáticamente sin volver a cargar los Excel: se unen las variantes, se conservan todos los resultados, horas y títulos originales, y se recalcula la clasificación automática. El esquema anterior no distinguía valores predeterminados de correcciones: sus marcas transversales positivas se conservan como manuales y los valores técnicos iniciales se revisan según el Excel. Desde esta versión también se conserva una corrección manual que desmarque una transversal.
 
-## Cálculo de las horas
+## Cálculo de las horas presenciales
 
 La duración proviene exclusivamente del número de hojas consecutivas `Trimestre N` de la malla del programa y su jornada. No se asignan duraciones por nivel ni se completan mallas ausentes con reglas históricas. Se requieren las mallas de todos los programas/jornadas del reporte para determinar cuáles fichas pasan y cuáles terminan, incluso si la meta es cero. Las continuaciones avanzan desde el trimestre de formación del reporte hasta el inicio de la vigencia. Una ficha termina al final de su último trimestre; las nuevas ingresan al principio del trimestre calendario.
 
@@ -77,7 +110,7 @@ Los parámetros editables de capacidad por instructor, aprendices por ficha, sem
 
 El motor curricular tiene un recorrido propio: no llama al planificador histórico. Valida únicamente los parámetros que usa; las referencias horarias no bloquean ni completan su demanda. Una meta fraccionaria, capacidad inválida, perfil sin correspondencia en el reporte o demanda incompleta produce un error; no se convierte silenciosamente a otra cantidad. En **Reglas utilizadas en el cálculo** y en las hojas **Parametros usados** y **Criterio de calculo** se muestran los valores efectivos, su origen y la fórmula. La auditoría y sus comprobaciones están en [AUDITORIA_CALCULOS.md](docs/AUDITORIA_CALCULOS.md).
 
-## Fichas e instructores
+## Fichas e instructores presenciales
 
 La meta es el total de aprendices atendidos durante la vigencia. Cada ficha que pasa cuenta una sola vez para la meta, aunque termine antes de diciembre. Como el reporte no incluye su matrícula, sus aprendices se estiman con el tamaño de ficha configurado. Técnico y Tecnólogo se calculan por separado.
 
@@ -133,14 +166,15 @@ El reporte incluido `data/reporteFichas_2026_4.xlsx` contiene varios programas. 
 | `curriculum_outcomes` | Resultado, competencia, título original, trimestre, horas y hoja/fila del Excel. |
 | `specialties`, `instructors`, vista `plant_instructors` | Último reporte normalizado de instructores. |
 | `execution` | Última ejecución, entradas, copia de mallas y clasificación, cálculos y resultados. |
+| `virtual_schedules` (solo Virtual) | Cronogramas, fases, actividades, fechas, clasificación y horas docentes manuales. |
 
-Guardar una planeación reemplaza los instructores y la ejecución previa en una transacción. Las mallas y competencias permanecen. Modificar el catálogo no modifica la copia de una ejecución anterior ni su descarga.
+Guardar una planeación reemplaza los instructores y la ejecución previa en una transacción. Los catálogos permanecen. Modificar el catálogo no modifica la copia de una ejecución anterior ni su descarga. La ejecución virtual conserva una copia del cronograma y su carga docente; su Excel incluye fechas de ofertas, fases, clasificación, contratos, cobertura por perfil y observaciones de origen.
 
-Un reinicio completo vacía reportes, ejecución, mallas, resultados y clasificación, y cambia la versión de reinicio de la base. Las sesiones abiertas detectan ese cambio y borran sus archivos y parámetros en memoria al recargar. Las metas iniciales quedan en cero; las capacidades y el tamaño de ficha conservan valores iniciales válidos para evitar divisiones por cero.
+Un reinicio completo vacía reportes, ejecución y catálogos (incluidos cronogramas y carga docente en Virtual), y cambia la versión de reinicio de la base de la modalidad activa. Las sesiones abiertas detectan ese cambio y borran sus archivos y parámetros en memoria al recargar. Las metas iniciales quedan en cero; las capacidades y el tamaño de ficha conservan valores iniciales válidos para evitar divisiones por cero.
 
-Para hacerlo desde la aplicación, abrir **Reportes y parámetros → Limpieza del sistema**, marcar **Confirmo que deseo borrar todos los datos del sistema** y pulsar **Formatear sistema**. La pantalla se reinicia y queda lista para nuevas cargas. El borrado de los datos guardados es permanente; los Excel originales y las descargas en el equipo se conservan.
+Para hacerlo desde la aplicación, abrir **Reportes y parámetros** (Presencial) o **Datos manuales y parámetros** (Virtual), entrar a **Limpieza del sistema**, marcar la confirmación y pulsar **Formatear sistema**. La pantalla queda lista para nuevas cargas. El borrado de los datos guardados de esa modalidad es permanente; la otra modalidad, los Excel originales y las descargas se conservan.
 
-El Excel contiene distribución, metas, calendario, dotación, continuaciones y capacidad, más **Mallas curriculares**, **Competencias**, **Resultados curriculares** y **Trazabilidad horas**. Esta última muestra cohorte/ficha, edad, competencia, resultado, horas unitarias, fichas, horas requeridas y hoja/fila de origen.
+El Excel presencial contiene distribución, metas, calendario, dotación, continuaciones y capacidad, más **Mallas curriculares**, **Competencias**, **Resultados curriculares** y **Trazabilidad horas**. Esta última muestra cohorte/ficha, edad, competencia, resultado, horas unitarias, fichas, horas requeridas y hoja/fila de origen.
 
 Sus dos primeras hojas son **Contratacion requerida** y **Contratistas y fechas**, con el resumen principal y el detalle individual de inicio y finalización. Las fechas se derivan de los meses de necesidad de cada cupo de la ejecución guardada y conservan el mismo identificador de sus asignaciones mensuales.
 
@@ -156,7 +190,7 @@ La documentación previa se conserva en `docs/MODELOS_ANTERIORES.md`. Sus cálcu
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Las pruebas usan bases temporales. Los dos Excel originales están en `tests/fixtures/curricula/`. Se comprueban importación, deduplicación, clasificación, reimportación, transacciones, jornadas, duraciones, continuaciones, ofertas, capacidad compartida, exportación y recuperación de la interfaz.
+Las pruebas usan bases temporales. Las mallas originales están en `tests/fixtures/curricula/` y el cronograma virtual real en `tests/fixtures/virtual_schedules/`. Se comprueban importación, clasificación, reimportación, transacciones, jornadas presenciales, fases virtuales, continuaciones, ofertas, capacidad, exportación e interfaz. También se verifica que guardar o limpiar una modalidad no cambie la otra base.
 
 Para comprobar los reportes y mallas de la base local y generar un Excel de revisión sin reemplazar la última ejecución:
 

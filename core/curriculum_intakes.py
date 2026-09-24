@@ -60,10 +60,18 @@ def project_curricular_intakes(manual, imported, targets, rules):
     census = Counter()
     for row in imported["detail"]:
         census[(*curriculum_key(row["Especialidad"], row["Jornada de planeación"]), name_key(row["Nivel"]))] += 1
-    weights = {index: census[(*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))]
-               for index, row in result.iterrows()}
-    if any(weight <= 0 for weight in weights.values()) or sum(weights.values()) != len(imported["detail"]):
-        raise ValueError("La distribución de programas debe corresponder a las fichas del reporte; no se pueden asignar proporciones predeterminadas.")
+    if imported.get("input_mode") == "virtual_manual":
+        manual_weights = {_offer_profile(row): row["Peso de oferta"] for row in imported["profile_weights"]}
+        if len(manual_weights) != len(result) or set(manual_weights) != {_offer_profile(row) for row in result.to_dict("records")}:
+            raise ValueError("Los pesos de oferta deben corresponder a los programas virtuales seleccionados.")
+        weights = {index: manual_weights[_offer_profile(row)] for index, row in result.iterrows()}
+        if any(isinstance(w, bool) or not isinstance(w, Real) or not math.isfinite(w) or w <= 0 or w % 1 for w in weights.values()):
+            raise ValueError("Los pesos de oferta deben ser enteros positivos.")
+    else:
+        weights = {index: census[(*curriculum_key(row["Especialidad"], row["Jornada"]), name_key(row["Nivel"]))]
+                   for index, row in result.iterrows()}
+        if any(weight <= 0 for weight in weights.values()) or sum(weights.values()) != len(imported["detail"]):
+            raise ValueError("La distribución de programas debe corresponder a las fichas del reporte; no se pueden asignar proporciones predeterminadas.")
     levels, audit = [], []
     for level in ("Técnico", "Tecnólogo"):
         subset = result.loc[result["Nivel"] == level]

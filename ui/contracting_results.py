@@ -56,7 +56,8 @@ def render_contracting_details(execution):
 
 def render_planning_details(execution, instructors):
     render_intake_offers(execution)
-    with st.expander("Duración y terminación de las fichas del reporte"):
+    virtual = execution.get("input_mode") == "virtual_manual"
+    with st.expander("Duración y terminación de las fichas manuales" if virtual else "Duración y terminación de las fichas del reporte"):
         if execution.get("duration_basis"):
             st.caption(execution["duration_basis"])
         st.dataframe(pd.DataFrame(execution["ficha_import"]["detail"]), hide_index=True, use_container_width=True)
@@ -82,6 +83,8 @@ def render_planning_details(execution, instructors):
     with st.expander("Comprobar horas por competencia, trimestre y resultado"):
         st.dataframe(pd.DataFrame(execution["curriculum_hours"]), hide_index=True, use_container_width=True)
     with st.expander("Cobertura de planta"):
+        if execution.get("plant_basis"):
+            st.caption(execution["plant_basis"])
         st.dataframe(instructors.loc[instructors["Es planta"], ["Área", "Especialidad", "Nombre", "Documento"]],
                      hide_index=True, use_container_width=True)
         st.dataframe(pd.DataFrame(execution["resources"]), hide_index=True, use_container_width=True)

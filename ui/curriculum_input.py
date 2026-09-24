@@ -8,23 +8,29 @@ import streamlit as st
 
 from core.curriculum import catalog_digest, curriculum_key, parse_curriculum
 from core.curriculum_store import import_curricula, load_curricula, save_competencies
+from ui.planning_session import module_file_uploader, scoped_key, widget_key
 
 
 def resettable_upload_key(name):
-    revision = st.session_state.get("_database_reset_version", 0)
-    return f"{name}_reset_{revision}" if revision else name
+    revision = st.session_state.get(scoped_key("_database_reset_version"), 0)
+    return scoped_key(f"{name}_reset_{revision}" if revision else name)
 
 
-def curriculum_inputs(path):
+def curriculum_inputs(path, *, virtual=False):
     catalog = load_curricula(path)
     st.subheader("Mallas curriculares")
-    st.caption("Cargue uno o varios archivos PROGRAMA - JORNADA.xlsx. Se guardan todos los resultados y sus horas por trimestre. Una nueva versión reemplaza solo la malla del mismo programa y jornada.")
-    uploaded = st.file_uploader("Mallas curriculares (.xlsx)", type=["xlsx"], accept_multiple_files=True, key=resettable_upload_key("curricula_upload"))
+    st.caption("Cargue uno o varios archivos " + ("PROGRAMA - VIRTUAL.xlsx" if virtual else "PROGRAMA - JORNADA.xlsx")
+               + ". Se guardan todos los resultados y sus horas por trimestre. Una nueva versión reemplaza solo la malla del mismo programa y jornada en esta modalidad.")
+    uploaded = module_file_uploader("Trimestralizaciones virtuales (.xlsx)" if virtual else "Mallas curriculares (.xlsx)",
+                                   type=["xlsx"], accept_multiple_files=True, key=resettable_upload_key("curricula_upload"))
     ready = True
     if uploaded:
         files = [(item.name, item.getvalue()) for item in uploaded]
         try:
             parsed = [parse_curriculum(content, name) for name, content in files]
+            allowed = {"Virtual"} if virtual else {"Diurna", "Mixta"}
+            if any(item["schedule"] not in allowed for item in parsed):
+                raise ValueError("Las mallas deben corresponder a Titulada " + ("virtual (PROGRAMA - VIRTUAL.xlsx)." if virtual else "presencial (Diurna o Mixta)."))
             seen = {}
             for item in parsed:
                 key = curriculum_key(item["program"], item["schedule"])
@@ -77,7 +83,7 @@ def curriculum_inputs(path):
                             disabled=["Competencia", "Mallas"],
                             column_config={"Transversal": st.column_config.CheckboxColumn(default=False),
                                            "Área transversal": st.column_config.SelectboxColumn(options=["Bilingüismo", "Integralidad"], required=True)},
-                            key=f"competencies_editor_{catalog_digest(catalog)}")
+                            key=widget_key(f"competencies_editor_{catalog_digest(catalog)}"))
     draft = copy.deepcopy(catalog)
     for row, values in zip(draft["competencies"], edited.to_dict("records")):
         row["transversal"], row["transversal_area"] = bool(values["Transversal"]), values["Área transversal"]

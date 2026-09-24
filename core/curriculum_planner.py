@@ -100,9 +100,6 @@ def apply_curriculum_hours(calendar, catalog, imported, year, rules):
 
 
 def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest):
-    from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
-    from core.curriculum_intakes import initialize_curricular_plan
-
     errors = rules.validate_curricular()
     if errors:
         raise ValueError(" ".join(errors))
@@ -112,6 +109,14 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
     imported = prepare_ficha_import(pd.DataFrame(imported["rows"]), instructors, catalog, year,
                                     imported["source_name"], imported["source_digest"],
                                     imported["report_year"], imported["report_quarter"])
+    return execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
+
+
+def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest):
+    """Motor compartido tras validar el origen presencial o la entrada virtual."""
+    from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
+    from core.curriculum_intakes import initialize_curricular_plan
+
     manual = validate_profiles(pd.DataFrame(imported["summary"], columns=MANUAL_COLUMNS), instructors)
     endings = validate_endings(manual, suggested_endings(manual, imported, strict=True))
     # Este recorrido no llama al planificador histórico ni a sus reglas de crecimiento.

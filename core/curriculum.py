@@ -25,6 +25,8 @@ def schedule_name(value):
         return "Diurna"
     if value in {"MIXTA", "MIXTO"} or value.startswith(("MIXTA ", "MIXTO ")):
         return "Mixta"
+    if value == "VIRTUAL":
+        return "Virtual"
     raise ValueError(f"Jornada no reconocida: {original}. Indique la jornada real; O&P/P&O es la abreviatura del programa.")
 
 

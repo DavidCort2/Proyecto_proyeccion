@@ -59,6 +59,8 @@ def reset_planning_database(path: str | Path) -> dict[str, int]:
     tables = ("execution", "instructors", "specialties", "curriculum_outcomes", "curricula", "competencies", "curriculum_metadata")
     with closing(_connect(path)) as connection:
         connection.executescript(SCHEMA + CURRICULUM_SCHEMA)
+        if connection.execute("SELECT name FROM sqlite_master WHERE name='virtual_schedules'").fetchone():
+            tables += ("virtual_schedules",)
         revision = connection.execute("PRAGMA user_version").fetchone()[0] + 1
         connection.execute("PRAGMA secure_delete = ON")
         with connection:
@@ -71,7 +73,7 @@ def reset_planning_database(path: str | Path) -> dict[str, int]:
 
 def save_planning(path: str | Path, instructors: pd.DataFrame, execution: dict) -> dict:
     """Reemplaza toda la carga; un fallo revierte también los borrados."""
-    if instructors.empty:
+    if instructors.empty and execution.get("input_mode") != "virtual_manual":
         raise ValueError("No se puede guardar un reporte vacío.")
     payload = json.dumps(execution, ensure_ascii=False, allow_nan=False)
     saved_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

@@ -315,8 +315,8 @@ def legacy_main() -> None:
 
 
 def main() -> None:
-    from ui.automatic_planning import render_automatic_planning
-    render_automatic_planning(DATABASE_PATH)
+    from ui.navigation import render_application
+    render_application(DATABASE_PATH)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,81 @@
+"""Cronogramas virtuales y decisiones docentes, separados de las mallas."""
+from contextlib import closing
+import json
+from pathlib import Path
+
+from core.database import _connect
+from core.virtual_schedule import finite_hours, lective_activities, parse_virtual_schedule
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS virtual_schedules (
+    program_key TEXT PRIMARY KEY, payload TEXT NOT NULL
+);
+"""
+
+
+def load_virtual_schedules(path):
+    if not Path(path).exists():
+        return {"schedules": []}
+    with closing(_connect(path)) as db:
+        if not db.execute("SELECT name FROM sqlite_master WHERE name='virtual_schedules'").fetchone():
+            return {"schedules": []}
+        return {"schedules": [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules ORDER BY program_key")]}
+
+
+def import_virtual_schedules(path, files):
+    parsed = {}
+    for filename, content in files:
+        item = parse_virtual_schedule(content, filename)
+        if item["program_key"] in parsed and parsed[item["program_key"]]["source_digest"] != item["source_digest"]:
+            raise ValueError(f"Hay dos versiones del cronograma de {item['program']} en la misma carga.")
+        parsed[item["program_key"]] = item
+    if not parsed:
+        raise ValueError("Seleccione al menos un cronograma Excel.")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with closing(_connect(path)) as db:
+        db.executescript(SCHEMA)
+        with db:
+            for key, item in parsed.items():
+                old = db.execute("SELECT payload FROM virtual_schedules WHERE program_key=?", (key,)).fetchone()
+                if old:
+                    old = {row["id"]: row for row in json.loads(old[0])["activities"]}
+                    for row in item["activities"]:
+                        previous = old.get(row["id"])
+                        if previous:
+                            row["teaching_type"] = previous.get("teaching_type")
+                            # Las horas son por actividad completa: si cambia su
+                            # contenido o intervalo se deben revisar nuevamente.
+                            if all(previous.get(field) == row[field] for field in ("activity", "start", "end", "competency")):
+                                row["instructor_hours"] = previous.get("instructor_hours")
+                db.execute("INSERT OR REPLACE INTO virtual_schedules VALUES (?, ?)",
+                           (key, json.dumps(item, ensure_ascii=False, allow_nan=False)))
+    return load_virtual_schedules(path)
+
+
+def save_virtual_activity_settings(path, program_key, source_digest, settings):
+    with closing(_connect(path)) as db:
+        with db:
+            saved = db.execute("SELECT payload FROM virtual_schedules WHERE program_key=?", (program_key,)).fetchone()
+            if saved is None:
+                raise ValueError("El cronograma ya no existe. Recargue la pantalla.")
+            item = json.loads(saved[0])
+            if item["source_digest"] != source_digest:
+                raise ValueError("El cronograma cambió en otra sesión. Recargue antes de guardar la clasificación.")
+            keyed = {row["id"]: row for row in settings}
+            activities = lective_activities(item)
+            required_ids = {row["id"] for row in activities}
+            source_ids = {row["id"] for row in item["activities"]}
+            if len(keyed) != len(settings) or not required_ids <= set(keyed) <= source_ids:
+                raise ValueError("La clasificación debe corresponder a todas las actividades lectivas del cronograma.")
+            # Conserva los datos históricos productivos sin permitir que una
+            # edición nueva los active ni exigir que el usuario los complete.
+            for row in activities:
+                choice = keyed[row["id"]]
+                if choice["teaching_type"] not in {None, "Técnico", "Transversal"}:
+                    raise ValueError("Seleccione Técnico o Transversal para las actividades.")
+                row["teaching_type"] = choice["teaching_type"]
+                row["instructor_hours"] = (None if choice["instructor_hours"] is None else
+                                           finite_hours(choice["instructor_hours"], row["activity_code"]))
+            db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?",
+                       (json.dumps(item, ensure_ascii=False, allow_nan=False), program_key))
+    return load_virtual_schedules(path)

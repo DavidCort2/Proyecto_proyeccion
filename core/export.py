@@ -6,8 +6,13 @@ from core.contracting_periods import contracting_headline, individual_contract_p
 
 def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
     """Exporta únicamente la instantánea ejecutada y guardada."""
+    if execution.get("planning_mode") == "virtual_schedule_v2":
+        from core.virtual_schedule_export import export_virtual_schedule
+        return export_virtual_schedule(instructors, execution)
     output = BytesIO()
     metadata = {
+        "Formación": execution.get("training_type", "Titulada"),
+        "Modalidad": execution.get("modality", "Presencial"),
         "Vigencia": execution["planning_year"],
         "Archivo": execution["source_name"],
         "Guardado (UTC)": execution["saved_at"],
@@ -22,6 +27,10 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
                 "Capacidad (h/sem)", "Instructor ID"]).to_excel(writer, sheet_name="Contratistas y fechas", index=False)
         pd.DataFrame([metadata]).to_excel(writer, sheet_name="Resumen planeacion", index=False)
         pd.DataFrame([execution["rules"]]).to_excel(writer, sheet_name="Reglas", index=False)
+        if execution.get("virtual_inputs"):
+            for key, sheet in [("programs", "Programas virtuales"), ("cohorts", "Fichas virtuales manuales"), ("plant", "Planta virtual manual")]:
+                pd.DataFrame(execution["virtual_inputs"][key]).to_excel(writer, sheet_name=sheet, index=False)
+            pd.DataFrame([{"Criterio de planta": execution["plant_basis"]}]).to_excel(writer, sheet_name="Criterio de planta", index=False)
         if execution.get("calculation_parameters"):
             pd.DataFrame(execution["calculation_parameters"]).to_excel(writer, sheet_name="Parametros usados", index=False)
             pd.DataFrame([{"Cálculo automático": execution["calculation_basis"]}]).to_excel(writer, sheet_name="Criterio de calculo", index=False)
