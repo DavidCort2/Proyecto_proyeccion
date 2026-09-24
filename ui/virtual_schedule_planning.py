@@ -8,7 +8,6 @@ import streamlit as st
 
 from core.database import database_reset_version, load_planning, save_planning
 from core.export import export_planning
-from core.virtual_schedule import read_date
 from core.virtual_schedule_planner import VirtualRules, execute_virtual_schedule_plan
 from ui.planning_session import clear_module_session, scoped_key, widget_key
 from ui.system_reset import render_system_reset
@@ -31,35 +30,27 @@ def virtual_parameters(previous):
                                value=float(defaults.get("weekly_plant_direct_hours", 32)), key=widget_key("weekly_plant_direct_hours"))
         contractor = c3.number_input("Horas semanales por contratista", min_value=1.0,
                                     value=float(defaults.get("weekly_contractor_hours", 40)), key=widget_key("weekly_contractor_hours"))
-        st.caption("Las fases y su duración provienen del cronograma. Las horas docentes se completan por actividad y ficha en «Cronogramas y competencias».")
+        st.caption("Cada ficha recibe 2 horas diarias, de lunes a viernes: 10 horas semanales para sus competencias técnicas y 10 por cada transversal activa. Con 40 horas un contratista atiende hasta 4 fichas; con 32, un instructor de planta atiende hasta 3. Las fases y su duración provienen del cronograma.")
         columns = st.columns(4)
         weights = tuple(columns[i].number_input(f"Ingresos en oferta {i + 1} (%)", min_value=0, max_value=100,
                                                  value=int(defaults.get("intake_weights", [50, 25, 15, 10])[i]),
                                                  key=widget_key(f"intake_weight_{i}")) for i in range(4))
-        previous_dates = previous.get("virtual_inputs", {}).get("offers", [None] * 4)
-        offers = []
-        for i, column in enumerate(columns):
-            prior = previous_dates[i] if len(previous_dates) == 4 else None
-            value = read_date(prior, "Oferta") if prior else None
-            if value and value.year != year:
-                value = None
-            chosen = column.date_input(f"Inicio de oferta {i + 1}", value=value, min_value=date(year, 1, 1), max_value=date(year, 12, 31),
-                                       format="DD/MM/YYYY", key=widget_key(f"offer_date_{i}_{year}"))
-            offers.append(chosen.isoformat() if chosen else None)
-        st.caption("Configure las fechas de inicio de las cuatro ofertas según la vigencia. Los porcentajes deben sumar 100 %. Las ofertas son ingresos de fichas, independientes de las fases de los programas.")
-    return year, targets, VirtualRules(int(learners), plant, contractor, weights), offers
+        st.caption("Las cuatro ofertas se proyectan automáticamente al inicio de enero, abril, julio y octubre. Son fechas indicativas. Los porcentajes deben sumar 100 %.")
+    return year, targets, VirtualRules(int(learners), plant, contractor, weights)
 
 
 def render_virtual_summary(plan):
     summary = plan["summary"]
     st.subheader(f"Contratación requerida · Vigencia {plan['planning_year']}")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Total de contratistas requeridos", summary["pico_contratistas_total"])
-    c2.metric("Intervalo del pico", f"{summary['inicio_pico']} → {summary['fin_pico']}" if summary["pico_contratistas_total"] else "Sin contratación")
+    c2.metric("Trimestre del pico", f"T{summary['trimestre_pico']}" if summary["pico_contratistas_total"] else "Sin contratación")
+    c3.metric("Inicio del pico", summary['inicio_pico'] if summary["pico_contratistas_total"] else "—")
     c1, c2 = st.columns(2)
     c1.metric("Técnicos en el pico", summary["tecnicos_en_pico"])
     c2.metric("Transversales en el pico", summary["transversales_en_pico"])
     st.caption("Los técnicos y transversales mostrados corresponden al mismo intervalo. La contratación se calcula cuando cambian las actividades; un promedio mensual no oculta los picos de carga.")
+    st.bar_chart(pd.DataFrame(plan["quarterly"]).set_index("Trimestre")[["Pico simultáneo de contratistas"]])
 
 
 def render_virtual_details(plan):
@@ -69,18 +60,25 @@ def render_virtual_details(plan):
     c3.metric("Fichas que pasan", plan["center"]["fichas_que_pasan"])
     st.caption("El total corresponde únicamente a horas de instructor de etapa lectiva dentro de la vigencia. La etapa productiva y su seguimiento están excluidos.")
     for key, label in [("contracts", "Contratistas requeridos y fechas"), ("offers_by_program", "Fichas nuevas por programa y oferta"),
+                       ("quarterly", "Necesidad y excedentes de contratistas por trimestre"),
                        ("cohort_dates", "Fechas y fases de las fichas"), ("levels", "Metas por nivel"),
                        ("periods", "Contratación por intervalos del cronograma"), ("monthly", "Resumen mensual"),
-                       ("staffing", "Cobertura de planta por tipo y perfil"), ("activity_hours", "Horas por fase, competencia y actividad")]:
+                       ("monthly_fichas", "Horas y fases de cada ficha por mes"),
+                       ("monthly_instructors", "Capacidad y horas disponibles de cada instructor"),
+                       ("monthly_assignments", "Asignación mensual de fichas a instructores"),
+                       ("staffing", "Cobertura de planta por tipo y perfil"), ("activity_hours", "Horas por fase y competencia")]:
         with st.expander(label):
+            if key == "contracts":
+                st.caption("Cada fila es un intervalo en que se requiere ese cupo. Un mismo cupo puede reaparecer después de una pausa. El 31 de diciembre es el límite de esta vigencia, no el fin lectivo de las fichas que continúan.")
+            if key == "monthly_assignments":
+                st.caption("Asignación indicativa por capacidad y perfil; las fichas nuevas se identifican con un consecutivo de proyección, no con un código oficial.")
             st.dataframe(pd.DataFrame(plan[key]), hide_index=True, use_container_width=True)
     with st.expander("Criterios utilizados"):
         st.write(plan["calculation_basis"])
-        st.markdown("Referencia: [Manual ZAJUNA del instructor, cronograma y fases](https://zajuna.sena.edu.co/pdfs/titulada/manuales/MANUAL%20ZAJUNA%20INSTRUCTOR_compressed.pdf).")
 
 
 def render_virtual_schedule_planning(path):
-    st.caption("Planeación de horas de etapa lectiva por fases y fechas de los cronogramas Excel. La etapa productiva no genera horas ni contratación.")
+    st.caption("Planeación de etapa lectiva por competencias y duración de las fases. Las fechas originales del cronograma y la etapa productiva se excluyen del cálculo.")
     try:
         revision = database_reset_version(path)
         completed = st.session_state.pop(scoped_key("_system_reset_complete"), False)
@@ -97,19 +95,19 @@ def render_virtual_schedule_planning(path):
     except (ValueError, OSError, sqlite3.Error) as exc:
         st.error(f"No fue posible abrir los datos virtuales: {exc}")
         return
-    if saved and previous.get("planning_mode") != "virtual_schedule_v2":
-        st.warning("La ejecución anterior se conserva para descargarla. Para la planeación por fases cargue los cronogramas y revise fechas de las fichas, perfiles de planta y carga docente.")
+    if saved and previous.get("planning_mode") != "virtual_schedule_v3":
+        st.warning("La ejecución anterior se conserva para descargarla. Para actualizarla cargue los cronogramas, indique las fechas de fin lectiva de las fichas que pasan y complete los nombres y cédulas de planta.")
     elif saved and previous.get("workload_scope") != "lectiva":
         st.info("La ejecución guardada es anterior al cálculo solo lectivo. La vista previa excluye la etapa productiva; ejecute y guarde para actualizar su Excel.")
     preview, staff, problem = None, None, None
     with settings:
-        year, targets, rules, offers = virtual_parameters(previous)
+        year, targets, rules = virtual_parameters(previous)
         for error in rules.validate():
             st.error(error)
         draft = manual_schedule_inputs(catalog, previous)
         if draft and ready and not rules.validate():
             try:
-                staff, preview = execute_virtual_schedule_plan(catalog, **draft, rules=rules, targets=targets, year=year, offers=offers)
+                staff, preview = execute_virtual_schedule_plan(catalog, **draft, rules=rules, targets=targets, year=year)
             except ValueError as exc:
                 problem = str(exc)
                 st.warning(problem)

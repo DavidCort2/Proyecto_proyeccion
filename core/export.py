@@ -6,7 +6,7 @@ from core.contracting_periods import contracting_headline, individual_contract_p
 
 def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
     """Exporta únicamente la instantánea ejecutada y guardada."""
-    if execution.get("planning_mode") == "virtual_schedule_v2":
+    if execution.get("planning_mode") in {"virtual_schedule_v2", "virtual_schedule_v3"}:
         from core.virtual_schedule_export import export_virtual_schedule
         return export_virtual_schedule(instructors, execution)
     output = BytesIO()

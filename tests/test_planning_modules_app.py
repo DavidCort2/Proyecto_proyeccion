@@ -68,9 +68,9 @@ def editor(app, prefix):
     return next(node for node in app.dataframe if node.key and node.key.startswith(prefix))
 
 
-def edit(app, prefix, *, rows=None, added=None):
+def edit(app, prefix, *, rows=None, added=None, deleted=None):
     node = editor(app, prefix)
-    app.session_state[node.key] = {"edited_rows": rows or {}, "added_rows": added or [], "deleted_rows": []}
+    app.session_state[node.key] = {"edited_rows": rows or {}, "added_rows": added or [], "deleted_rows": deleted or []}
     app.run()
     assert not app.exception
 
@@ -80,12 +80,7 @@ def ready_virtual(app):
     app.session_state["test_virtual:schedules_upload"] = True
     app.run()
     button(app, "Importar y guardar cronogramas").click().run()
-    edit(app, "virtual:schedule_activities_", rows={
-        0: {"Tipo": "Técnico", "Horas instructor por ficha": 10},
-        1: {"Tipo": "Transversal", "Horas instructor por ficha": 20},
-        2: {"Tipo": "Técnico", "Horas instructor por ficha": 30},
-    })
-    button(app, "Guardar clasificación y horas").click().run()
+    assert len(editor(app, "virtual:schedule_competencies_").value) == 2
     assert not app.exception
     edit(app, "virtual:virtual_programs_", rows={0: {"Nivel": "Tecnólogo"}})
     app.number_input(key="virtual:planning_year").set_value(2027)
@@ -93,7 +88,7 @@ def ready_virtual(app):
     for q, weight in enumerate([100, 0, 0, 0]):
         app.number_input(key=f"virtual:intake_weight_{q}").set_value(weight)
     app.run()
-    app.date_input(key="virtual:offer_date_0_2027").set_value(date(2027, 1, 1)).run()
+    assert not app.date_input  # Ofertas automáticas; fin lectiva se ingresa en la tabla.
     assert not app.exception
     assert not app.error
     assert not button(app, "Ejecutar y guardar planeación").disabled
@@ -141,36 +136,38 @@ def test_navigation_independent_parameters_and_empty_complementaria(module_args)
 def test_virtual_manual_workflow_save_reopen_and_export(module_args):
     app = ready_virtual(open_app(module_args))
     edit(app, "virtual:virtual_cohorts_", added=[{
-        "Programa": "Software", "Fichas que pasan": 2, "Fecha inicio formación": "2026-12-25"}])
-    edit(app, "virtual:virtual_plant_", added=[{"Tipo": "Técnico", "Perfil": "Software", "Instructores de planta": 1}])
-    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "220"
+        "Programa": "Software", "Fecha fin lectiva": "2027-01-14"} for _ in range(2)])
+    edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Ana María Pérez", "Cédula": "00123", "Tipo": "Técnico", "Perfil": "Software"}])
+    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "100"
     button(app, "Ejecutar y guardar planeación").click().run()
     assert not app.exception and not app.error
     path = planning_database(module_args[0], "Virtual")
     saved = load_planning(path)
-    assert saved[1]["virtual_inputs"]["cohorts"][0]["Fichas que pasan"] == 2
+    assert sum(row["Fichas que pasan"] for row in saved[1]["virtual_inputs"]["cohorts"]) == 2
     assert len(saved[0]) == 1
+    assert saved[0].iloc[0]["Nombre"] == "Ana María Pérez"
+    assert saved[0].iloc[0]["Documento"] == "00123"
     assert not Path(module_args[0]).exists()
     assert not app.get("download_button")[0].proto.disabled
     reopened = open_app(module_args)
     reopened.radio(key="nav_modality").set_value("Virtual").run()
     assert not reopened.exception and not reopened.error
     assert reopened.number_input(key="virtual:target_technologist").value == 100
-    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "220"
+    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "100"
     assert not reopened.get("download_button")[0].proto.disabled
 
 
 def test_unsaved_manual_edits_survive_switches(module_args):
     app = ready_virtual(open_app(module_args))
     edit(app, "virtual:virtual_cohorts_", added=[{
-        "Programa": "Software", "Fichas que pasan": 2, "Fecha inicio formación": "2026-12-25"}])
+        "Programa": "Software", "Fecha fin lectiva": "2027-01-14"} for _ in range(2)])
     hours = next(item.value for item in app.metric if item.label == "Total de horas al año")
     for training, modality in [("Titulada", "Presencial"), ("Complementaria", "Virtual"), ("Titulada", "Virtual")]:
         app.radio(key="nav_training").set_value(training)
         app.radio(key="nav_modality").set_value(modality).run()
         assert not app.exception
     assert next(item.value for item in app.metric if item.label == "Total de horas al año") == hours
-    assert app.session_state["virtual:schedule_manual_draft"]["cohorts"][0]["Fichas que pasan"] == 2
+    assert sum(row["Fichas que pasan"] for row in app.session_state["virtual:schedule_manual_draft"]["cohorts"]) == 2
     assert load_planning(planning_database(module_args[0], "Virtual")) is None
 
 
@@ -206,7 +203,7 @@ def test_invalid_virtual_input_blocks_saving_and_preserves_previous(module_args)
     path = planning_database(module_args[0], "Virtual")
     saved = load_planning(path)[1]
     edit(app, "virtual:virtual_cohorts_", added=[{
-        "Programa": "Software", "Fichas que pasan": 1, "Fecha inicio formación": "2025-01-01"}])
+        "Programa": "Software", "Fecha fin lectiva": "2025-01-01"}])
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert any("terminaron" in item.value for item in app.warning)
     assert load_planning(path)[1] == saved
@@ -238,8 +235,8 @@ def test_older_presencial_execution_opens_without_forcing_a_new_save(module_args
 def test_virtual_draft_survives_schedule_replacement(module_args):
     app = ready_virtual(open_app(module_args))
     edit(app, "virtual:virtual_cohorts_", added=[{
-        "Programa": "Software", "Fichas que pasan": 2, "Fecha inicio formación": "2026-12-25"}])
-    edit(app, "virtual:virtual_plant_", added=[{"Tipo": "Técnico", "Perfil": "Software", "Instructores de planta": 2}])
+        "Programa": "Software", "Fecha fin lectiva": "2027-01-14"} for _ in range(2)])
+    edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Ana Pérez", "Cédula": "00123", "Tipo": "Técnico", "Perfil": "Software"}])
     # Simula reemplazo por otra sesión; la carga visible se retira antes de recargar.
     app.session_state["test_virtual:schedules_upload"] = False
     app.session_state["virtual:uploads:virtual:schedules_upload"] = []
@@ -249,38 +246,38 @@ def test_virtual_draft_survives_schedule_replacement(module_args):
         import_virtual_schedules(path, [("Cronograma Software.xlsx", content)])
         app.run()
         assert not app.exception
-        assert app.session_state["virtual:schedule_manual_draft"]["cohorts"][0]["Fichas que pasan"] == 2
-        assert app.session_state["virtual:schedule_manual_draft"]["plant"][0]["Instructores de planta"] == 2
-        assert button(app, "Ejecutar y guardar planeación").disabled  # Las fechas cambiaron: revisar horas docentes.
+        assert sum(row["Fichas que pasan"] for row in app.session_state["virtual:schedule_manual_draft"]["cohorts"]) == 2
+        assert app.session_state["virtual:schedule_manual_draft"]["plant"][0]["Cédula"] == "00123"
+        assert not button(app, "Ejecutar y guardar planeación").disabled  # Recalcula con la nueva duración y conserva el fin lectivo.
 
 
 def test_activity_edits_and_transversal_plant_apply_only_after_saving(module_args):
     app = ready_virtual(open_app(module_args))
-    edit(app, "virtual:virtual_plant_", added=[{"Tipo": "Transversal", "Perfil": "240202501", "Instructores de planta": 1}])
+    edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Luis Pérez", "Cédula": "987", "Tipo": "Transversal", "Perfil": "240202501"}])
     button(app, "Ejecutar y guardar planeación").click().run()
     path = planning_database(module_args[0], "Virtual")
     previous = load_planning(path)[1]
     assert previous["virtual_inputs"]["plant"][0]["Tipo"] == "Transversal"
-    edit(app, "virtual:schedule_activities_", rows={1: {"Horas instructor por ficha": 40}})
+    edit(app, "virtual:schedule_competencies_", rows={0: {"Tipo": "Transversal"}})
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert load_planning(path)[1] == previous
     app.radio(key="nav_modality").set_value("Presencial").run()
     app.radio(key="nav_modality").set_value("Virtual").run()
     assert not app.exception
     assert button(app, "Ejecutar y guardar planeación").disabled
-    assert not button(app, "Guardar clasificación y horas").disabled
-    button(app, "Guardar clasificación y horas").click().run()
-    assert load_virtual_schedules(path)["schedules"][0]["activities"][1]["instructor_hours"] == 40
+    assert not button(app, "Guardar clasificación de competencias").disabled
+    button(app, "Guardar clasificación de competencias").click().run()
+    assert load_virtual_schedules(path)["schedules"][0]["activities"][0]["teaching_type"] == "Transversal"
     assert not button(app, "Ejecutar y guardar planeación").disabled
     button(app, "Ejecutar y guardar planeación").click().run()
-    assert load_planning(path)[1]["center"]["demanda_total_horas_anuales"] == 320
+    assert load_planning(path)[1]["center"]["demanda_total_horas_anuales"] == 120
 
 
 def test_productive_stage_is_not_editable_and_older_plan_requires_recalculation(module_args):
     Path(module_args[-1]).write_bytes(schedule_bytes(productive_days=14))
     app = ready_virtual(open_app(module_args))
-    assert len(editor(app, "virtual:schedule_activities_").value) == 3
-    assert "Etapa productiva" not in editor(app, "virtual:schedule_activities_").value["Fase"].tolist()
+    assert len(editor(app, "virtual:schedule_competencies_").value) == 2
+    assert "Etapa productiva" not in editor(app, "virtual:schedule_competencies_").value["Competencia"].tolist()
     button(app, "Ejecutar y guardar planeación").click().run()
     path = planning_database(module_args[0], "Virtual")
     staff, previous = load_planning(path)
@@ -291,7 +288,7 @@ def test_productive_stage_is_not_editable_and_older_plan_requires_recalculation(
     reopened.radio(key="nav_modality").set_value("Virtual").run()
     assert not reopened.exception and not reopened.error
     assert any("anterior al cálculo solo lectivo" in item.value for item in reopened.info)
-    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "240"
+    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "120"
     assert reopened.get("download_button")[0].proto.disabled
     assert not reopened.get("download_button")[-1].proto.disabled
     button(reopened, "Ejecutar y guardar planeación").click().run()

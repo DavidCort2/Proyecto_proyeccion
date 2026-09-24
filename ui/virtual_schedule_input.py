@@ -6,11 +6,13 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-from core.virtual_schedule import is_lective_activity, lective_activities, parse_virtual_schedule
-from core.virtual_schedule_store import import_virtual_schedules, load_virtual_schedules, save_virtual_activity_settings
+from core.virtual_schedule import is_lective_activity, lective_activities, parse_virtual_schedule, require_program_template
+from core.virtual_competencies import competency_rows
+from core.virtual_schedule_store import import_virtual_schedules, load_virtual_schedules, save_virtual_competencies
 from core.virtual_schedule_planner import staff_options, virtual_schedule_templates
 from ui.curriculum_input import resettable_upload_key
 from ui.planning_session import module_file_uploader, scoped_key, widget_key
+from ui.virtual_cohort_input import continuing_ficha_inputs
 
 
 def digest(value):
@@ -20,7 +22,7 @@ def digest(value):
 def schedule_inputs(path):
     catalog = load_virtual_schedules(path)
     st.subheader("Cronogramas de programas virtuales")
-    st.caption("Cargue el Cronograma General en Excel: fases, actividades del proyecto, actividades de aprendizaje, horas estimadas y fechas. Se leen las celdas combinadas. El programa se identifica dentro del archivo.")
+    st.caption("Cargue el Cronograma General en Excel. Se extraen competencias, fases y duraciones; las fechas de la ficha del archivo se ignoran. El programa se identifica dentro del documento.")
     files = module_file_uploader("Cronogramas virtuales (.xlsx)", type=["xlsx"], accept_multiple_files=True,
                                  key=resettable_upload_key("schedules_upload"))
     ready = True
@@ -29,14 +31,15 @@ def schedule_inputs(path):
             payload = [(item.name, item.getvalue()) for item in files]
             parsed = [parse_virtual_schedule(content, name) for name, content in payload]
             known = {item["program_key"]: item["source_digest"] for item in catalog["schedules"]}
-            ready = all(known.get(item["program_key"]) == item["source_digest"] for item in parsed)
+            versions = {item["program_key"]: item.get("schema_version") for item in catalog["schedules"]}
+            ready = all(known.get(item["program_key"]) == item["source_digest"] and versions.get(item["program_key"]) == item["schema_version"] for item in parsed)
             st.dataframe(pd.DataFrame([{"Programa": item["program"], "Actividades lectivas": len(lective_activities(item)),
-                                        "Inicio de referencia": item["reference_start"], "Fin de referencia": item["reference_end"]} for item in parsed]),
+                                        "Duración lectiva": item["lective_duration"], "Unidad": item["duration_unit"]} for item in parsed]),
                          hide_index=True, use_container_width=True)
             if st.button("Importar y guardar cronogramas", disabled=ready, type="primary"):
                 catalog = import_virtual_schedules(path, payload)
                 ready = True
-                st.success("Cronogramas guardados. Revise la clasificación y la carga docente de las actividades.")
+                st.success("Cronogramas guardados. Revise las competencias transversales sugeridas.")
             elif not ready:
                 st.info("Guarde los cronogramas cargados para utilizarlos en la planeación.")
         except (ValueError, OSError, sqlite3.Error) as exc:
@@ -45,41 +48,45 @@ def schedule_inputs(path):
     if not catalog["schedules"]:
         st.info("Cargue al menos un cronograma para comenzar.")
         return catalog, False
-    st.caption("Solo se planean horas de etapa lectiva. La etapa productiva y su seguimiento se conservan como referencia del archivo, pero no suman horas ni generan contratación. Ingrese las horas totales de instructor por actividad lectiva y ficha; use 0 explícito donde no corresponda carga docente.")
+    try:
+        for item in catalog["schedules"]:
+            require_program_template(item)
+    except ValueError as exc:
+        st.warning(str(exc))
+        return catalog, False
+    st.caption("Solo se planea la etapa lectiva. Cada competencia aparece una vez, aunque se repita en varias fases o programas. La clasificación transversal se sugiere por el texto de las actividades; puede corregirla y se aplicará a todos los programas.")
+    base = pd.DataFrame(competency_rows(catalog))
+    edited = st.data_editor(base, hide_index=True, use_container_width=True,
+                            disabled=["Competencia", "Actividad de referencia", "Programas", "Fases"],
+                            column_config={"Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"], required=True)},
+                            key=widget_key("schedule_competencies_" + digest(catalog)))
+    changed = not base.equals(edited)
+    if st.button("Guardar clasificación de competencias", disabled=not changed, key=scoped_key("save_schedule_competencies")):
+        try:
+            catalog = save_virtual_competencies(path, {item["program_key"]: item["source_digest"] for item in catalog["schedules"]}, edited.to_dict("records"))
+            changed = False
+            st.success("Clasificación guardada para todas las fases y programas.")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            st.error(str(exc))
+    if changed:
+        ready = False
+        st.info("Guarde la clasificación para aplicarla al cálculo.")
     for item in catalog["schedules"]:
         with st.expander(item["program"], expanded=len(catalog["schedules"]) == 1):
+            st.write(f"Duración lectiva: {item['lective_duration']:g} {item['duration_unit']}.")
             for warning in item["warnings"]:
                 st.warning(warning)
             st.markdown("**Fases y actividades del proyecto**")
             st.dataframe(pd.DataFrame([{"Fase": row["phase"], "Actividad del proyecto": row["project_activity"],
-                                        "Inicio": row["start"], "Fin": row["end"], "Horas estimadas del bloque": row["source_hours"],
-                                        "Uso": "Etapa lectiva" if is_lective_activity(row) else "Excluida de la planeación"}
+                                        "Inicio relativo": row["start_offset"], "Duración": row["duration"], "Unidad": row["duration_unit"],
+                                        "Uso": "Etapa lectiva" if is_lective_activity(row) else "Excluida de la planeación",
+                                        "Notas de origen": " · ".join(note["text"] for note in row.get("source_notes", []))}
                                        for row in item["blocks"]]), hide_index=True, use_container_width=True)
-            st.markdown("**Actividades lectivas: clasificación y horas de instructor**")
+            st.markdown("**Competencias y actividades de cada fase**")
             activities = lective_activities(item)
             base = pd.DataFrame([{"Fase": row["phase"], "Competencia": row["competency"], "Resultado / actividad": row["activity"],
-                                  "Tipo": row["teaching_type"], "Horas instructor por ficha": row["instructor_hours"]}
-                                 for row in activities]).astype({"Horas instructor por ficha": "Float64"})
-            edited = st.data_editor(base, hide_index=True, use_container_width=True,
-                                    disabled=["Fase", "Competencia", "Resultado / actividad"],
-                                    column_config={"Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"]),
-                                                   "Horas instructor por ficha": st.column_config.NumberColumn(min_value=0.0, step=0.5)},
-                                    key=widget_key("schedule_activities_lectiva_" + digest(item)))
-            settings = [{"id": original["id"], "teaching_type": values["Tipo"] if pd.notna(values["Tipo"]) else None,
-                         "instructor_hours": float(values["Horas instructor por ficha"]) if pd.notna(values["Horas instructor por ficha"]) else None}
-                        for original, values in zip(activities, edited.to_dict("records"))]
-            changed = any(row["teaching_type"] != old["teaching_type"] or row["instructor_hours"] != old["instructor_hours"]
-                          for row, old in zip(settings, activities))
-            if st.button("Guardar clasificación y horas", key=scoped_key("save_schedule_" + item["program_key"]), disabled=not changed):
-                try:
-                    catalog = save_virtual_activity_settings(path, item["program_key"], item["source_digest"], settings)
-                    changed = False
-                    st.success("Clasificación y horas guardadas.")
-                except (ValueError, OSError, sqlite3.Error) as exc:
-                    st.error(str(exc))
-            if changed:
-                ready = False
-                st.info("Guarde la clasificación y las horas para aplicarlas al cálculo.")
+                                  "Tipo": row["teaching_type"]} for row in activities])
+            st.dataframe(base, hide_index=True, use_container_width=True)
     return catalog, ready
 
 
@@ -102,29 +109,19 @@ def manual_schedule_inputs(catalog, previous):
                                             "Nivel": st.column_config.SelectboxColumn(options=["Técnico", "Tecnólogo"], required=True),
                                             "Peso de oferta": st.column_config.NumberColumn(min_value=1, step=1, required=True)},
                              key=widget_key("virtual_programs_" + revision))
-    st.subheader("Fichas que pasan")
-    st.caption("Registre la cantidad y la fecha de inicio de cada grupo. Las fases pendientes se calculan con las fechas del cronograma; grupos con fechas de inicio distintas van en filas separadas. Deje la tabla vacía si no hay continuaciones.")
-    frame = pd.DataFrame(cohorts, columns=["Programa", "Fichas que pasan", "Fecha inicio formación"])
-    frame = frame.astype({"Fichas que pasan": "Int64"})
-    frame["Fecha inicio formación"] = pd.to_datetime(frame["Fecha inicio formación"])
-    cohorts = st.data_editor(frame, num_rows="dynamic", hide_index=True, use_container_width=True,
-                            column_config={"Programa": st.column_config.SelectboxColumn(options=programs["Programa"].tolist(), required=True),
-                                           "Fichas que pasan": st.column_config.NumberColumn(min_value=1, step=1, required=True),
-                                           "Fecha inicio formación": st.column_config.DateColumn(format="DD/MM/YYYY", required=True)},
-                            key=widget_key("virtual_cohorts_" + revision))
+    cohort_rows, added_fichas = continuing_ficha_inputs(programs["Programa"].tolist(), cohorts, revision)
     st.subheader("Instructores de planta")
     st.caption("Elija Técnico y el programa que atiende, o Transversal y su código de competencia. La capacidad transversal se comparte entre programas que usan esa competencia. Deje vacío si no hay planta.")
     options = staff_options(catalog)
-    frame = pd.DataFrame(plant, columns=["Tipo", "Perfil", "Instructores de planta"]).astype({"Instructores de planta": "Int64"})
+    frame = pd.DataFrame(plant, columns=["Nombre completo", "Cédula", "Tipo", "Perfil"]).astype("string")
     plant = st.data_editor(frame, num_rows="dynamic", hide_index=True, use_container_width=True,
-                          column_config={"Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"], required=True),
-                                         "Perfil": st.column_config.SelectboxColumn(options=options["Técnico"] + options["Transversal"], required=True),
-                                         "Instructores de planta": st.column_config.NumberColumn(min_value=0, step=1, required=True)},
+                          column_config={"Nombre completo": st.column_config.TextColumn(required=True),
+                                         "Cédula": st.column_config.TextColumn(required=True),
+                                         "Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"], required=True),
+                                         "Perfil": st.column_config.SelectboxColumn(options=options["Técnico"] + options["Transversal"], required=True)},
                           key=widget_key("virtual_plant_" + revision))
-    cohort_rows = cohorts.to_dict("records")
-    for row in cohort_rows:
-        value = row["Fecha inicio formación"]
-        row["Fecha inicio formación"] = value.date().isoformat() if pd.notna(value) else None
     draft = {"programs": programs.to_dict("records"), "cohorts": cohort_rows, "plant": plant.to_dict("records")}
     st.session_state[scoped_key("schedule_manual_draft")] = draft
+    if added_fichas:
+        st.rerun()
     return draft

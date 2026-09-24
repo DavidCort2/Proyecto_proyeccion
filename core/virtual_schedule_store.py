@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core.database import _connect
 from core.virtual_schedule import finite_hours, lective_activities, parse_virtual_schedule
+from core.virtual_competencies import suggest_classifications
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS virtual_schedules (
@@ -35,20 +36,42 @@ def import_virtual_schedules(path, files):
     with closing(_connect(path)) as db:
         db.executescript(SCHEMA)
         with db:
+            classifications = {}
+            for saved, in db.execute("SELECT payload FROM virtual_schedules"):
+                for activity in json.loads(saved)["activities"]:
+                    if activity.get("classification_source") == "manual":
+                        classifications[activity["competency"]] = activity["teaching_type"]
             for key, item in parsed.items():
                 old = db.execute("SELECT payload FROM virtual_schedules WHERE program_key=?", (key,)).fetchone()
                 if old:
                     old = {row["id"]: row for row in json.loads(old[0])["activities"]}
                     for row in item["activities"]:
                         previous = old.get(row["id"])
-                        if previous:
+                        if previous and previous.get("classification_source") == "manual":
                             row["teaching_type"] = previous.get("teaching_type")
-                            # Las horas son por actividad completa: si cambia su
-                            # contenido o intervalo se deben revisar nuevamente.
-                            if all(previous.get(field) == row[field] for field in ("activity", "start", "end", "competency")):
+                            row["classification_source"] = "manual"
+                            # Un cambio en las fechas de la ficha de ejemplo no altera
+                            # la plantilla ni invalida las horas docentes guardadas.
+                            if all(previous.get(field) == row[field] for field in ("activity", "start_offset", "duration", "duration_unit", "competency")):
                                 row["instructor_hours"] = previous.get("instructor_hours")
+                for row in item["activities"]:
+                    if row["competency"] in classifications:
+                        row.update(teaching_type=classifications[row["competency"]], classification_source="manual")
                 db.execute("INSERT OR REPLACE INTO virtual_schedules VALUES (?, ?)",
                            (key, json.dumps(item, ensure_ascii=False, allow_nan=False)))
+            # Una competencia compartida tiene una sola decisión, usando el texto
+            # de todos los programas y respetando las correcciones del usuario.
+            schedules = [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules")]
+            activities = [row for item in schedules for row in lective_activities(item)]
+            manual = {row["competency"]: row["teaching_type"] for row in activities
+                      if row.get("classification_source") == "manual"}
+            suggest_classifications(activities)
+            for row in activities:
+                if row["competency"] in manual:
+                    row.update(teaching_type=manual[row["competency"]], classification_source="manual")
+            for item in schedules:
+                db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?",
+                           (json.dumps(item, ensure_ascii=False, allow_nan=False), item["program_key"]))
     return load_virtual_schedules(path)
 
 
@@ -74,8 +97,27 @@ def save_virtual_activity_settings(path, program_key, source_digest, settings):
                 if choice["teaching_type"] not in {None, "Técnico", "Transversal"}:
                     raise ValueError("Seleccione Técnico o Transversal para las actividades.")
                 row["teaching_type"] = choice["teaching_type"]
+                row["classification_source"] = "manual"
                 row["instructor_hours"] = (None if choice["instructor_hours"] is None else
                                            finite_hours(choice["instructor_hours"], row["activity_code"]))
             db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?",
                        (json.dumps(item, ensure_ascii=False, allow_nan=False), program_key))
+    return load_virtual_schedules(path)
+
+
+def save_virtual_competencies(path, expected_digests, settings):
+    with closing(_connect(path)) as db:
+        with db:
+            schedules = [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules ORDER BY program_key")]
+            if {row["program_key"]: row["source_digest"] for row in schedules} != expected_digests:
+                raise ValueError("Los cronogramas cambiaron. Recargue antes de guardar la clasificación.")
+            required = {row["competency"] for item in schedules for row in lective_activities(item)}
+            choices = {row["Competencia"]: row["Tipo"] for row in settings}
+            if len(choices) != len(settings) or set(choices) != required or any(value not in {"Técnico", "Transversal"} for value in choices.values()):
+                raise ValueError("Clasifique todas las competencias una sola vez como Técnico o Transversal.")
+            for item in schedules:
+                for row in lective_activities(item):
+                    if row["teaching_type"] != choices[row["competency"]]:
+                        row.update(teaching_type=choices[row["competency"]], classification_source="manual")
+                db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?", (json.dumps(item, ensure_ascii=False, allow_nan=False), item["program_key"]))
     return load_virtual_schedules(path)

@@ -7,6 +7,7 @@ from core.virtual_schedule import is_lective_activity
 def export_virtual_schedule(instructors, plan):
     output = BytesIO()
     lective_only = plan.get("workload_scope") == "lectiva"
+    automatic = plan.get("planning_mode") == "virtual_schedule_v3"
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         pd.DataFrame([{"Formación": "Titulada", "Modalidad": "Virtual", "Vigencia": plan["planning_year"],
                        "Alcance de horas": "Solo etapa lectiva" if lective_only else "Según ejecución anterior",
@@ -20,13 +21,20 @@ def export_virtual_schedule(instructors, plan):
                            ("cohort_dates", "Fechas y fases de fichas"), ("periods", "Contratacion por fechas"), ("contracts", "Contratistas y fechas"),
                            ("monthly", "Resumen mensual"), ("staffing", "Cobertura por perfil"), ("activity_hours", "Trazabilidad horas")]:
             pd.DataFrame(plan[key]).to_excel(writer, sheet_name=sheet, index=False)
+        if automatic:
+            from core.virtual_competencies import competency_rows
+            for key, sheet in [("quarterly", "Resumen trimestral"), ("monthly_fichas", "Horas mensuales por ficha"),
+                               ("monthly_instructors", "Capacidad por instructor"), ("monthly_assignments", "Asignaciones mensuales")]:
+                pd.DataFrame(plan[key]).to_excel(writer, sheet_name=sheet, index=False)
+            pd.DataFrame(competency_rows(plan["schedule_catalog"])).to_excel(writer, sheet_name="Competencias unicas", index=False)
         catalog = plan["schedule_catalog"]["schedules"]
         pd.DataFrame([{"Programa": item["program"], **row,
                        "Incluida en planeación": not lective_only or is_lective_activity(row)}
                       for item in catalog for row in item["blocks"]]).to_excel(writer, sheet_name="Cronogramas y fases", index=False)
         pd.DataFrame([{"Programa": item["program"], **row,
                        "Incluida en planeación": not lective_only or is_lective_activity(row),
-                       "Horas docentes por ficha para planeación": row["instructor_hours"] if not lective_only or is_lective_activity(row) else 0}
+                       ("Carga aplicada" if automatic else "Horas docentes por ficha para planeación"):
+                           ("Regla diaria por perfil activo; ver trazabilidad" if is_lective_activity(row) else "Excluida") if automatic else row["instructor_hours"] if not lective_only or is_lective_activity(row) else 0}
                       for item in catalog for row in item["activities"]]).to_excel(writer, sheet_name="Actividades y clasificacion", index=False)
         pd.DataFrame([{"Programa": item["program"], "Observación": warning} for item in catalog for warning in item["warnings"]]).to_excel(writer, sheet_name="Observaciones del origen", index=False)
         pd.DataFrame([{"Criterio": plan["calculation_basis"]}]).to_excel(writer, sheet_name="Criterio de calculo", index=False)

@@ -9,7 +9,7 @@ from ui.planning_session import scoped_key, widget_key
 
 def render_system_reset(path):
     modality = st.session_state.get("_planning_scope")
-    sources = "los cronogramas y la carga docente" if modality == "Virtual" else "las mallas y las competencias"
+    sources = "los cronogramas y las competencias" if modality == "Virtual" else "las mallas y las competencias"
     with st.expander("Limpieza del sistema"):
         if modality:
             st.info(f"Esta limpieza afecta únicamente a Titulada {modality.lower()}. La otra modalidad conserva sus datos.")

@@ -1,0 +1,9 @@
+{
+  "duration_adjustments": [
+    {
+      "program": "Análisis y Desarrollo de Software",
+      "remainder_phase": "Evaluación",
+      "source": "El usuario confirma que el total lectivo declarado es correcto y que el tiempo faltante pertenece a evaluación con acompañamiento docente."
+    }
+  ]
+}
