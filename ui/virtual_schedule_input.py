@@ -54,11 +54,15 @@ def schedule_inputs(path):
     except ValueError as exc:
         st.warning(str(exc))
         return catalog, False
-    st.caption("Solo se planea la etapa lectiva. Cada competencia aparece una vez, aunque se repita en varias fases o programas. La clasificación transversal se sugiere por el texto de las actividades; puede corregirla y se aplicará a todos los programas.")
+    st.subheader("Clasificar competencias únicas")
+    st.caption("En la columna Tipo puede elegir Técnico o Transversal para cada competencia y pulsar Guardar clasificación de competencias. La decisión se aplica a todas sus actividades y programas. Cada código aparece una sola vez; la carga se calcula solo en los bloques donde se cursa esa competencia.")
+    st.caption("La clasificación inicial es una sugerencia del texto del Excel. Técnico comparte las 10 horas semanales del programa; cada competencia Transversal activa tiene 2 horas semanales por ficha.")
+    st.caption("Según la configuración del centro, las transversales comparten el perfil Transversal general, excepto Bilingüismo. Puede corregir Perfil docente si la identificación automática no corresponde. Las competencias del mismo perfil suman su carga dentro de una sola capacidad; este campo no modifica la carga técnica.")
     base = pd.DataFrame(competency_rows(catalog))
     edited = st.data_editor(base, hide_index=True, use_container_width=True,
                             disabled=["Competencia", "Actividad de referencia", "Programas", "Fases"],
-                            column_config={"Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"], required=True)},
+                            column_config={"Tipo": st.column_config.SelectboxColumn(options=["Técnico", "Transversal"], required=True),
+                                           "Perfil docente": st.column_config.TextColumn(required=True)},
                             key=widget_key("schedule_competencies_" + digest(catalog)))
     changed = not base.equals(edited)
     if st.button("Guardar clasificación de competencias", disabled=not changed, key=scoped_key("save_schedule_competencies")):
@@ -111,7 +115,7 @@ def manual_schedule_inputs(catalog, previous):
                              key=widget_key("virtual_programs_" + revision))
     cohort_rows, added_fichas = continuing_ficha_inputs(programs["Programa"].tolist(), cohorts, revision)
     st.subheader("Instructores de planta")
-    st.caption("Elija Técnico y el programa que atiende, o Transversal y su código de competencia. La capacidad transversal se comparte entre programas que usan esa competencia. Deje vacío si no hay planta.")
+    st.caption("Elija Técnico y su programa, o Transversal y el perfil docente configurado en las competencias. Un instructor de planta comparte su capacidad entre las competencias de ese perfil, sin contarse dos veces. Deje vacío si no hay planta.")
     options = staff_options(catalog)
     frame = pd.DataFrame(plant, columns=["Nombre completo", "Cédula", "Tipo", "Perfil"]).astype("string")
     plant = st.data_editor(frame, num_rows="dynamic", hide_index=True, use_container_width=True,

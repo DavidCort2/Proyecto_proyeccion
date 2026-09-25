@@ -32,7 +32,7 @@ def test_add_ten_with_individual_dates_count_calculate_save_and_reopen(module_ar
     assert button(app, "Ejecutar y guardar planeación").disabled
     edit(app, "virtual:virtual_cohorts_", rows={i: {"Fecha fin lectiva": "2027-01-07" if i < 5 else "2027-01-14"} for i in range(10)})
     assert metric(app, "Fechas pendientes") == "0"
-    assert metric(app, "Total de horas al año") == "150"  # 5 × 10 h pendientes + 5 × 20 h.
+    assert metric(app, "Total de horas al año") == "110"  # 5 × 10 h pendientes + 5 × 12 h.
     button(app, "Ejecutar y guardar planeación").click().run()
     assert not app.exception and not app.error
     saved = load_planning(planning_database(module_args[0], "Virtual"))[1]
@@ -44,7 +44,7 @@ def test_add_ten_with_individual_dates_count_calculate_save_and_reopen(module_ar
     reopened.radio(key="nav_modality").set_value("Virtual").run()
     assert not reopened.exception and not reopened.error
     assert metric(reopened, "Total de fichas que pasan") == "10"
-    assert metric(reopened, "Total de horas al año") == "150"
+    assert metric(reopened, "Total de horas al año") == "110"
     assert not reopened.get("download_button")[0].proto.disabled
     dates = editor(reopened, "virtual:virtual_cohorts_").value["Fecha fin lectiva"].dt.strftime("%Y-%m-%d").tolist()
     assert dates == ["2027-01-07"] * 5 + ["2027-01-14"] * 5

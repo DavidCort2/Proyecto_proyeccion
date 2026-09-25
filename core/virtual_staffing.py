@@ -24,8 +24,6 @@ def build_staffing(timeline, boundaries, plant, rules, year):
                             "Cédula": person["Cédula"], "Vinculación": "Planta"})
     for rows in people.values():
         rows.sort(key=lambda row: row["Cédula"])
-    plant_slots = math.floor(rules.weekly_plant_direct_hours / rules.weekly_hours_per_ficha)
-    contract_slots = math.floor(rules.weekly_contractor_hours / rules.weekly_hours_per_ficha)
     periods, staffing = [], []
     spans = defaultdict(list)
     ficha_months, instructor_months, assignments = {}, {}, {}
@@ -39,25 +37,37 @@ def build_staffing(timeline, boundaries, plant, rules, year):
                 group = row["group"]
                 for number in range(1, group["count"] + 1):
                     ficha_id = f"{group['program']} | {group['label']} | {number}"
-                    task = tasks[row["key"]].setdefault(ficha_id, {
+                    # Una atención transversal identifica ficha + competencia.
+                    # Compartir perfil no elimina la carga de otra competencia.
+                    unit_id = (ficha_id, row["Competencias"] if row["Tipo"] == "Transversal" else "")
+                    task = tasks[row["key"]].setdefault(unit_id, {
                         "Ficha proyectada": ficha_id, "Programa": group["program"], "Cohorte": group["label"],
-                        "Origen": group["kind"], "Fecha fin lectiva": (group["end"] - DAY).isoformat(), "Fases": set()})
+                        "Origen": group["kind"], "Fecha fin lectiva": (group["end"] - DAY).isoformat(), "Fases": set(), "Competencias": set()})
                     task["Fases"].add(row["Fase"])
+                    task["Competencias"].update(row["Competencias"].split(", "))
         totals = Counter()
         active_fichas = set()
         for key in sorted(labels):
+            weekly_per_ficha = rules.weekly_hours_for(key[0])
+            hours_per_ficha = weekly_per_ficha * days / 5
+            plant_slots = math.floor(rules.weekly_plant_direct_hours / weekly_per_ficha)
+            contract_slots = math.floor(rules.weekly_contractor_hours / weekly_per_ficha)
             demand = tasks[key]
-            active_fichas.update(demand)
+            profile_fichas = {task["Ficha proyectada"] for task in demand.values()}
+            active_fichas.update(profile_fichas)
             count = len(demand)
             covered = min(count, len(people[key]) * plant_slots)
             remaining = count - covered
             contractors = math.ceil(remaining / contract_slots)
-            weekly = count * rules.weekly_hours_per_ficha
-            total_hours = count * rules.daily_hours_per_ficha * days
-            covered_hours = covered * rules.daily_hours_per_ficha * days
+            weekly = count * weekly_per_ficha
+            total_hours = count * hours_per_ficha
+            covered_hours = covered * hours_per_ficha
             staffing.append({"Tipo": key[0], "Perfil": labels[key], "Inicio": start.isoformat(), "Fin": (end - DAY).isoformat(),
-                             "Fichas activas": count, "Fichas cubiertas por planta": covered,
+                             "Fichas activas": len(profile_fichas), "Fichas cubiertas por planta": 0,
+                             "Atenciones activas": count, "Atenciones cubiertas por planta": covered,
                              "Horas requeridas (h/sem)": weekly,
+                             "Horas semanales por ficha": weekly_per_ficha,
+                             "Máximo fichas por planta": plant_slots, "Máximo fichas por contratista": contract_slots,
                              "Capacidad planta (h/sem)": len(people[key]) * rules.weekly_plant_direct_hours,
                              "Horas requeridas": total_hours, "Horas cubiertas por planta": covered_hours,
                              "Horas a contratar": total_hours - covered_hours, "Contratistas requeridos": contractors})
@@ -70,6 +80,7 @@ def build_staffing(timeline, boundaries, plant, rules, year):
             for person in contractors_rows:
                 spans[key, person["Cupo"]].append((start, end))
             unassigned = set(demand)
+            plant_assigned = set()
             # Conserva las fichas de cada persona cuando siguen activas; planta tiene prioridad.
             for person in [*people[key], *contractors_rows]:
                 identifier = person["Instructor"]
@@ -78,27 +89,37 @@ def build_staffing(timeline, boundaries, plant, rules, year):
                 assigned = sorted(previous.get(identifier, set()) & unassigned)[:slots]
                 assigned.extend(sorted(unassigned - set(assigned))[:slots - len(assigned)])
                 unassigned.difference_update(assigned)
+                if is_plant:
+                    plant_assigned.update(assigned)
                 previous[identifier] = set(assigned)
                 row_key = start.month, identifier
                 instructor = instructor_months.setdefault(row_key, {
                     "Mes": start.month, **{k: v for k, v in person.items() if k != "Cupo"}, "Tipo": key[0], "Perfil": labels[key],
                     "Capacidad semanal": rules.weekly_plant_direct_hours if is_plant else rules.weekly_contractor_hours,
                     "Máximo fichas simultáneas": slots, "Pico fichas asignadas": 0,
+                    "Pico atenciones asignadas": 0,
                     "Capacidad en horas": 0.0, "Horas asignadas": 0.0})
                 instructor["Capacidad en horas"] += days * instructor["Capacidad semanal"] / 5
-                instructor["Pico fichas asignadas"] = max(instructor["Pico fichas asignadas"], len(assigned))
-                instructor["Horas asignadas"] += len(assigned) * rules.daily_hours_per_ficha * days
-                for ficha_id in assigned:
-                    task = demand[ficha_id]
+                instructor["Pico fichas asignadas"] = max(instructor["Pico fichas asignadas"], len({demand[unit]["Ficha proyectada"] for unit in assigned}))
+                instructor["Pico atenciones asignadas"] = max(instructor["Pico atenciones asignadas"], len(assigned))
+                instructor["Horas asignadas"] += len(assigned) * hours_per_ficha
+                for unit_id in assigned:
+                    task = demand[unit_id]
+                    ficha_id = task["Ficha proyectada"]
                     ficha = ficha_months.setdefault((start.month, ficha_id), {
-                        "Mes": start.month, **{k: v for k, v in task.items() if k != "Fases"}, "Fases": set(),
+                        "Mes": start.month, **{k: v for k, v in task.items() if k not in {"Fases", "Competencias"}}, "Fases": set(),
                         "Horas técnicas": 0.0, "Horas transversales": 0.0})
                     ficha["Fases"].update(task["Fases"])
-                    ficha["Horas técnicas" if key[0] == "Técnico" else "Horas transversales"] += rules.daily_hours_per_ficha * days
+                    ficha["Horas técnicas" if key[0] == "Técnico" else "Horas transversales"] += hours_per_ficha
                     assignment = assignments.setdefault((start.month, identifier, ficha_id), {
                         "Mes": start.month, "Instructor": identifier, "Nombre": person["Nombre"], "Tipo": key[0], "Perfil": labels[key],
-                        "Ficha proyectada": ficha_id, "Programa": task["Programa"], "Horas asignadas": 0.0})
-                    assignment["Horas asignadas"] += rules.daily_hours_per_ficha * days
+                        "Ficha proyectada": ficha_id, "Programa": task["Programa"], "Competencias": set(), "Horas asignadas": 0.0})
+                    assignment["Competencias"].update(task["Competencias"])
+                    assignment["Horas asignadas"] += hours_per_ficha
+            units_by_ficha = defaultdict(set)
+            for unit, task in demand.items():
+                units_by_ficha[task["Ficha proyectada"]].add(unit)
+            staffing[-1]["Fichas cubiertas por planta"] = sum(units <= plant_assigned for units in units_by_ficha.values())
             if unassigned:
                 raise ValueError("La capacidad calculada no cubre todas las fichas del intervalo.")
         periods.append({"Inicio": start.isoformat(), "Fin": (end - DAY).isoformat(), "Mes": start.month,
@@ -118,7 +139,8 @@ def build_staffing(timeline, boundaries, plant, rules, year):
         for start, end in merged:
             contracts.append({"Instructor": f"Contrato · {key[0]} · {labels[key]} · {slot}", "Tipo": key[0], "Perfil": labels[key],
                               "Cupo": slot, "Inicio": start.isoformat(), "Fin": (end - DAY).isoformat(),
-                              "Capacidad (h/sem)": rules.weekly_contractor_hours, "Máximo fichas simultáneas": contract_slots,
+                              "Capacidad (h/sem)": rules.weekly_contractor_hours,
+                              "Máximo fichas simultáneas": math.floor(rules.weekly_contractor_hours / rules.weekly_hours_for(key[0])),
                               "Fin limitado por vigencia": end == date(year + 1, 1, 1)})
     peak = max(periods, key=lambda row: row["Contratistas requeridos"])
 
@@ -141,6 +163,8 @@ def build_staffing(timeline, boundaries, plant, rules, year):
         row["Horas requeridas"] = row["Horas técnicas"] + row["Horas transversales"]
     for row in instructor_months.values():
         row["Horas disponibles"] = row["Capacidad en horas"] - row["Horas asignadas"]
+    for row in assignments.values():
+        row["Competencias"] = ", ".join(sorted(row["Competencias"]))
     return {"periods": periods, "staffing": staffing, "contracts": contracts, "monthly": monthly, "quarterly": quarterly,
             "monthly_fichas": list(ficha_months.values()), "monthly_instructors": list(instructor_months.values()),
             "monthly_assignments": list(assignments.values()),

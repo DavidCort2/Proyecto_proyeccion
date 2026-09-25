@@ -5,7 +5,8 @@ from pathlib import Path
 
 from core.database import _connect
 from core.virtual_schedule import finite_hours, lective_activities, parse_virtual_schedule
-from core.virtual_competencies import suggest_classifications
+from core.virtual_competencies import assign_teaching_profiles, suggest_classifications, teaching_profile
+from core.curriculum import name_key
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS virtual_schedules (
@@ -20,7 +21,9 @@ def load_virtual_schedules(path):
     with closing(_connect(path)) as db:
         if not db.execute("SELECT name FROM sqlite_master WHERE name='virtual_schedules'").fetchone():
             return {"schedules": []}
-        return {"schedules": [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules ORDER BY program_key")]}
+        catalog = {"schedules": [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules ORDER BY program_key")]}
+        assign_teaching_profiles([row for item in catalog["schedules"] for row in lective_activities(item)])
+        return catalog
 
 
 def import_virtual_schedules(path, files):
@@ -37,10 +40,13 @@ def import_virtual_schedules(path, files):
         db.executescript(SCHEMA)
         with db:
             classifications = {}
+            profiles = {}
             for saved, in db.execute("SELECT payload FROM virtual_schedules"):
                 for activity in json.loads(saved)["activities"]:
                     if activity.get("classification_source") == "manual":
                         classifications[activity["competency"]] = activity["teaching_type"]
+                    if activity.get("profile_source") == "manual":
+                        profiles[activity["competency"]] = teaching_profile(activity)
             for key, item in parsed.items():
                 old = db.execute("SELECT payload FROM virtual_schedules WHERE program_key=?", (key,)).fetchone()
                 if old:
@@ -57,6 +63,8 @@ def import_virtual_schedules(path, files):
                 for row in item["activities"]:
                     if row["competency"] in classifications:
                         row.update(teaching_type=classifications[row["competency"]], classification_source="manual")
+                    if row["competency"] in profiles:
+                        row.update(teaching_profile=profiles[row["competency"]], profile_source="manual")
                 db.execute("INSERT OR REPLACE INTO virtual_schedules VALUES (?, ?)",
                            (key, json.dumps(item, ensure_ascii=False, allow_nan=False)))
             # Una competencia compartida tiene una sola decisión, usando el texto
@@ -66,6 +74,7 @@ def import_virtual_schedules(path, files):
             manual = {row["competency"]: row["teaching_type"] for row in activities
                       if row.get("classification_source") == "manual"}
             suggest_classifications(activities)
+            assign_teaching_profiles(activities)
             for row in activities:
                 if row["competency"] in manual:
                     row.update(teaching_type=manual[row["competency"]], classification_source="manual")
@@ -111,13 +120,24 @@ def save_virtual_competencies(path, expected_digests, settings):
             schedules = [json.loads(row[0]) for row in db.execute("SELECT payload FROM virtual_schedules ORDER BY program_key")]
             if {row["program_key"]: row["source_digest"] for row in schedules} != expected_digests:
                 raise ValueError("Los cronogramas cambiaron. Recargue antes de guardar la clasificación.")
+            assign_teaching_profiles([row for item in schedules for row in lective_activities(item)])
             required = {row["competency"] for item in schedules for row in lective_activities(item)}
             choices = {row["Competencia"]: row["Tipo"] for row in settings}
             if len(choices) != len(settings) or set(choices) != required or any(value not in {"Técnico", "Transversal"} for value in choices.values()):
                 raise ValueError("Clasifique todas las competencias una sola vez como Técnico o Transversal.")
+            prior_profiles = {row["competency"]: teaching_profile(row) for item in schedules for row in lective_activities(item)}
+            profiles, canonical = {}, {}
+            for choice in settings:
+                code = choice["Competencia"]
+                profile = choice.get("Perfil docente", prior_profiles[code])
+                if not isinstance(profile, str) or not name_key(profile):
+                    raise ValueError("Indique un perfil docente para cada competencia; use el mismo nombre solo si puede compartir instructor.")
+                profiles[code] = canonical.setdefault(name_key(profile), " ".join(profile.split()))
             for item in schedules:
                 for row in lective_activities(item):
                     if row["teaching_type"] != choices[row["competency"]]:
                         row.update(teaching_type=choices[row["competency"]], classification_source="manual")
+                    if teaching_profile(row) != profiles[row["competency"]]:
+                        row.update(teaching_profile=profiles[row["competency"]], profile_source="manual")
                 db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?", (json.dumps(item, ensure_ascii=False, allow_nan=False), item["program_key"]))
     return load_virtual_schedules(path)

@@ -321,8 +321,9 @@ def parse_virtual_schedule(content, filename):
                 warnings.append(f"Los bloques lectivos, incluida la inducción, suman {lective_duration:g} {unit}; el total del archivo declara {summary['duration']:g}. La proyección respeta las duraciones de los bloques, sin añadir tiempo no asignado.")
         for block in blocks:
             block.pop("identity")
-        from core.virtual_competencies import suggest_classifications
+        from core.virtual_competencies import assign_teaching_profiles, suggest_classifications
         suggest_classifications(activities)
+        assign_teaching_profiles(activities)
         return {"schema_version": 3, "program": program, "program_key": name_key(program), "project": project,
                 "source_name": filename, "source_digest": sha256(content).hexdigest(),
                 "duration": duration_sum(*(block["duration"] for block in blocks)), "duration_unit": duration_unit,

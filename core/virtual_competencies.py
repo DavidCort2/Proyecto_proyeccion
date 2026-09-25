@@ -1,5 +1,7 @@
 """Competencias virtuales únicas; clasificación sugerida por el texto del archivo."""
 from collections import defaultdict
+import json
+from pathlib import Path
 import re
 
 from core.excel_parser import normalize_text
@@ -14,6 +16,35 @@ TRANSVERSAL_TEXT = (
     r"INTERACCION SOCIAL ORAL|SITUACIONES COTIDIANAS Y LABORALES",
     r"CARACTERISTICAS SOCIOECONOMICAS",
 )
+
+
+def teaching_profile(activity):
+    """Perfil aplicado al catálogo; el código es respaldo de catálogos sin adaptar."""
+    return activity.get("teaching_profile") or activity["competency"]
+
+
+def assign_teaching_profiles(activities):
+    """Política declarada por el centro, con correcciones manuales por competencia."""
+    policy = json.loads((Path(__file__).resolve().parents[1] / "config" / "virtual_staffing.json").read_text(encoding="utf-8"))
+    references = json.loads((Path(__file__).resolve().parents[1] / "config" / "virtual_competency_references.json").read_text(encoding="utf-8"))
+    grouped = defaultdict(list)
+    for row in activities:
+        grouped[row["competency"]].append(row)
+    for rows in grouped.values():
+        manual = {teaching_profile(row) for row in rows if row.get("profile_source") == "manual"}
+        if len(manual) > 1:
+            raise ValueError(f"La competencia {rows[0]['competency']} tiene varios perfiles manuales; unifique su perfil.")
+        if manual:
+            profile, source = manual.pop(), "manual"
+        else:
+            reference = references.get(rows[0]["competency"], {})
+            text = normalize_text(" ".join(row["activity"] for row in rows) + " " + reference.get("topic", ""))
+            profile = policy["bilingual_profile"] if re.search(policy["bilingual_text_pattern"], text) else policy["general_profile"]
+            source = "automatic"
+        for row in rows:
+            row.update(teaching_profile=profile, profile_source=source)
+            if row["competency"] in references:
+                row["profile_reference"] = references[row["competency"]]["source_url"]
 
 
 def suggest_classifications(activities):
@@ -39,7 +70,10 @@ def competency_rows(catalog):
         choices = {row["teaching_type"] for _, row in pairs}
         if len(choices) != 1:
             raise ValueError(f"La competencia {competency} tiene clasificaciones distintas entre programas. Guarde una sola clasificación.")
-        result.append({"Competencia": competency, "Tipo": choices.pop(),
+        profiles = {teaching_profile(row) for _, row in pairs}
+        if len(profiles) != 1:
+            raise ValueError(f"La competencia {competency} tiene perfiles docentes distintos entre programas. Guarde un solo perfil.")
+        result.append({"Competencia": competency, "Tipo": choices.pop(), "Perfil docente": profiles.pop(),
                        "Actividad de referencia": pairs[0][1]["activity"],
                        "Programas": " · ".join(sorted({name for name, _ in pairs})),
                        "Fases": " · ".join(sorted({row["phase"] for _, row in pairs}))})

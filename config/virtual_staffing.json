@@ -1,0 +1,6 @@
+{
+  "general_profile": "Transversal general",
+  "bilingual_profile": "Bilingüismo",
+  "bilingual_text_pattern": "\\b(?:INGLES|INGLESA|ENGLISH|BILING\\w*)\\b",
+  "source": "El centro confirma que un instructor transversal puede cubrir todos los temas excepto bilingüismo, que utiliza instructores propios. La cantidad de instructores se calcula a partir de horas y capacidad; no está definida en esta configuración."
+}

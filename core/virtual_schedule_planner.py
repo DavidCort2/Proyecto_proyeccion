@@ -10,6 +10,7 @@ import re
 import pandas as pd
 
 from core.curriculum import name_key
+from core.virtual_competencies import teaching_profile
 from core.planner import fichas_from_target, largest_remainder_allocation
 from core.virtual_planning import INSTRUCTOR_COLUMNS, whole_number
 from core.virtual_schedule import duration_boundary, duration_sum, finite_hours, lective_activities, read_date, require_program_template
@@ -25,10 +26,18 @@ class VirtualRules:
     weekly_contractor_hours: float = 40.0
     intake_weights: tuple = (50, 25, 15, 10)
     daily_hours_per_ficha: float = 2.0
+    weekly_transversal_hours_per_ficha: float = 2.0
 
     @property
     def weekly_hours_per_ficha(self):
         return self.daily_hours_per_ficha * 5
+
+    def weekly_hours_for(self, teaching_type):
+        if teaching_type == "Técnico":
+            return self.weekly_hours_per_ficha
+        if teaching_type == "Transversal":
+            return self.weekly_transversal_hours_per_ficha
+        raise ValueError("Seleccione Técnico o Transversal para calcular la carga por ficha.")
 
     def validate(self):
         errors = []
@@ -36,9 +45,13 @@ class VirtualRules:
             whole_number(self.learners_per_ficha, "Aprendices por ficha", 1)
             if finite_hours(self.daily_hours_per_ficha, "Horas diarias por ficha") <= 0:
                 raise ValueError("Las horas diarias por ficha deben ser mayores que cero.")
+            transversal = finite_hours(self.weekly_transversal_hours_per_ficha, "Horas semanales transversales por ficha")
+            if transversal <= 0:
+                raise ValueError("Las horas semanales transversales por ficha deben ser mayores que cero.")
             for label, value in [("Horas de planta", self.weekly_plant_direct_hours), ("Horas de contratista", self.weekly_contractor_hours)]:
-                if finite_hours(value, label) < self.weekly_hours_per_ficha:
-                    raise ValueError(f"{label}: deben permitir atender al menos una ficha completa ({self.weekly_hours_per_ficha:g} h/sem).")
+                required = max(self.weekly_hours_per_ficha, transversal)
+                if finite_hours(value, label) < required:
+                    raise ValueError(f"{label}: deben permitir atender al menos una ficha completa ({required:g} h/sem).")
             weights = [finite_hours(value, "Porcentaje de oferta") for value in self.intake_weights]
             if len(weights) != 4 or not math.isclose(sum(weights), 100, abs_tol=1e-9):
                 raise ValueError("Las cuatro ofertas deben sumar 100 %.")
@@ -49,7 +62,7 @@ class VirtualRules:
 
 def staff_options(catalog):
     technical = sorted({item["program"] for item in catalog["schedules"]})
-    transversal = sorted({row["competency"] for item in catalog["schedules"] for row in lective_activities(item)
+    transversal = sorted({teaching_profile(row) for item in catalog["schedules"] for row in lective_activities(item)
                           if row["teaching_type"] == "Transversal"})
     return {"Técnico": technical, "Transversal": transversal}
 
@@ -64,11 +77,16 @@ def virtual_schedule_templates(catalog, previous):
                 "Fecha fin lectiva": read_date(row["Fecha fin lectiva"], "Fin lectiva") if row.get("Fecha fin lectiva") else None}
                for row in saved.get("cohorts", [])]
     plant = []
+    profile_aliases = {name_key(row["competency"]): teaching_profile(row) for item in catalog["schedules"] for row in lective_activities(item)
+                       if row["teaching_type"] == "Transversal"}
     for row in saved.get("plant", []):
         if "Tipo" not in row:
             continue
         if "Nombre completo" in row:
-            plant.append(row)
+            person = dict(row)
+            if person["Tipo"] == "Transversal":
+                person["Perfil"] = profile_aliases.get(name_key(person["Perfil"]), person["Perfil"])
+            plant.append(person)
         else:
             # Los antiguos cupos no identificaban personas: requieren diligenciarse.
             plant.extend({"Nombre completo": "", "Cédula": "", "Tipo": row["Tipo"], "Perfil": row["Perfil"]}
@@ -79,9 +97,13 @@ def virtual_schedule_templates(catalog, previous):
 def _plant(catalog, rows):
     options = staff_options(catalog)
     known = {(kind, name_key(profile)): profile for kind, profiles in options.items() for profile in profiles}
+    aliases = {name_key(row["competency"]): teaching_profile(row) for item in catalog["schedules"] for row in lective_activities(item)
+               if row["teaching_type"] == "Transversal"}
     counts, canonical, people, documents = Counter(), [], [], set()
     for row in rows:
         key = row.get("Tipo"), name_key(row.get("Perfil"))
+        if key[0] == "Transversal" and key[1] in aliases:
+            key = key[0], name_key(aliases[key[1]])
         if key not in known:
             raise ValueError("Planta: seleccione Técnico con su programa o Transversal con una competencia clasificada en los cronogramas.")
         name = row.get("Nombre completo")
@@ -200,9 +222,10 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
         item = available[group["key"]]
         by_profile = defaultdict(list)
         for activity in lective_activities(item):
-            profile = item["program"] if activity["teaching_type"] == "Técnico" else activity["competency"]
-            by_profile[activity["block_id"], activity["teaching_type"], profile].append(activity)
-        for (_, kind, profile), activities in by_profile.items():
+            profile = item["program"] if activity["teaching_type"] == "Técnico" else teaching_profile(activity)
+            competency = activity["competency"] if activity["teaching_type"] == "Transversal" else None
+            by_profile[activity["block_id"], activity["teaching_type"], profile, competency].append(activity)
+        for (_, kind, profile, _), activities in by_profile.items():
             activity = activities[0]
             start = max(first, group["boundary"](activity["start_offset"]))
             end = min(limit, group["boundary"](duration_sum(activity["start_offset"], activity["duration"])))
@@ -212,8 +235,8 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                              "Programa": item["program"], "Cohorte": group["label"], "Fichas": group["count"],
                              "Fase": activity["phase"], "Competencias": ", ".join(sorted({a["competency"] for a in activities})),
                              "Tipo": kind, "Perfil": profile, "Inicio": start.isoformat(), "Fin": (end - DAY).isoformat(),
-                             "Horas semanales por ficha": rules.weekly_hours_per_ficha,
-                             "Horas instructor en vigencia": group["count"] * rules.daily_hours_per_ficha * workdays(start, end),
+                             "Horas semanales por ficha": rules.weekly_hours_for(kind),
+                             "Horas instructor en vigencia": group["count"] * rules.weekly_hours_for(kind) * workdays(start, end) / 5,
                              "Archivo": item["source_name"]})
             boundaries.update([start, end])
     results = build_staffing(timeline, boundaries, canonical_plant, rules, year)
@@ -222,6 +245,7 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
     inputs = {"programs": canonical_programs, "cohorts": canonical_cohorts, "plant": canonical_plant,
               "offers": [value.isoformat() for value in dates]}
     execution = {"planning_mode": "virtual_schedule_v3", "workload_scope": "lectiva", "input_mode": "virtual_manual",
+                 "workload_model": "technical_daily_transversal_weekly_profiles_v1",
                  "training_type": "Titulada", "modality": "Virtual", "planning_year": year,
                  "targets_by_level": targets, "target_learners": sum(targets.values()), "rules": asdict(rules),
                  "source_name": "Cronogramas Excel, fases y atención diaria por ficha",
@@ -243,11 +267,17 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                      "Las ofertas se proyectan al inicio de cada trimestre (enero, abril, julio y octubre): son fechas indicativas, no un calendario oficial. "
                      "La meta incluye las fichas que pasan; el saldo dividido por aprendices por ficha, redondeado hacia arriba, determina las nuevas. "
                      f"Cada ficha requiere {rules.daily_hours_per_ficha:g} horas diarias de lunes a viernes ({rules.weekly_hours_per_ficha:g} semanales) "
-                     "para el conjunto de competencias técnicas activas y la misma carga por cada competencia transversal activa. "
+                     "para el conjunto de competencias técnicas activas. "
+                     f"Cada competencia transversal requiere {rules.weekly_transversal_hours_per_ficha:g} horas SEMANALES por ficha "
+                     "solo durante los bloques donde aparece en el cronograma. Para distribuir estas horas entre meses y tramos parciales, "
+                     "se prorratea la carga semanal entre los cinco días de lunes a viernes; este prorrateo no equivale a una clase transversal diaria. "
                      "Las actividades repetidas de una competencia no multiplican su carga. No se descuentan festivos porque no se cargó un calendario de festivos. "
                      "Se asignan fichas completas a cada instructor: la capacidad semanal dividida por la carga semanal por ficha, redondeada hacia abajo. "
                      "La planta cubre primero su perfil; los contratistas cubren las fichas restantes. Las horas libres se muestran y no se suman entre personas "
-                     "para inventar cupos completos adicionales. Un técnico atiende su programa; un transversal comparte su competencia entre programas. "
+                     "para inventar cupos completos adicionales. Un técnico atiende su programa; un transversal comparte las competencias "
+                     "asignadas al mismo perfil docente entre programas. El centro definió un perfil transversal general para todos los temas "
+                     "excepto bilingüismo, que tiene perfil propio. La identificación por texto y la clasificación pueden corregirse en el catálogo. "
+                     "Dos competencias distintas activas en una ficha suman sus horas; varios resultados de una misma competencia no las multiplican. "
                      "Los picos se calculan en cada cambio de fase y las fechas de contrato indican los intervalos de necesidad dentro de la vigencia. "
                      "La etapa productiva y antiguas horas manuales por actividad no intervienen en el cálculo."
                  )}

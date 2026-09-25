@@ -30,7 +30,13 @@ def virtual_parameters(previous):
                                value=float(defaults.get("weekly_plant_direct_hours", 32)), key=widget_key("weekly_plant_direct_hours"))
         contractor = c3.number_input("Horas semanales por contratista", min_value=1.0,
                                     value=float(defaults.get("weekly_contractor_hours", 40)), key=widget_key("weekly_contractor_hours"))
-        st.caption("Cada ficha recibe 2 horas diarias, de lunes a viernes: 10 horas semanales para sus competencias técnicas y 10 por cada transversal activa. Con 40 horas un contratista atiende hasta 4 fichas; con 32, un instructor de planta atiende hasta 3. Las fases y su duración provienen del cronograma.")
+        st.caption("Carga técnica: 2 horas diarias por ficha, equivalentes a 10 semanales. Carga transversal: 2 horas semanales por ficha y competencia, únicamente durante los bloques donde está activa. Las fases y su duración provienen del cronograma.")
+        capacity_rules = VirtualRules(weekly_plant_direct_hours=plant, weekly_contractor_hours=contractor)
+        st.dataframe(pd.DataFrame([{"Tipo": kind, "Horas semanales por ficha": capacity_rules.weekly_hours_for(kind),
+                                    "Cupos por contratista": int(contractor // capacity_rules.weekly_hours_for(kind)),
+                                    "Cupos por planta": int(plant // capacity_rules.weekly_hours_for(kind))}
+                                   for kind in ("Técnico", "Transversal")]), hide_index=True, use_container_width=True)
+        st.caption("En técnico, un cupo atiende una ficha. En transversal, un cupo atiende una competencia de una ficha durante la semana: dos competencias activas suman dos cupos. Las sesiones transversales se distribuyen dentro de la jornada, hasta 8 horas diarias por contratista de 40 horas semanales.")
         columns = st.columns(4)
         weights = tuple(columns[i].number_input(f"Ingresos en oferta {i + 1} (%)", min_value=0, max_value=100,
                                                  value=int(defaults.get("intake_weights", [50, 25, 15, 10])[i]),
@@ -99,6 +105,8 @@ def render_virtual_schedule_planning(path):
         st.warning("La ejecución anterior se conserva para descargarla. Para actualizarla cargue los cronogramas, indique las fechas de fin lectiva de las fichas que pasan y complete los nombres y cédulas de planta.")
     elif saved and previous.get("workload_scope") != "lectiva":
         st.info("La ejecución guardada es anterior al cálculo solo lectivo. La vista previa excluye la etapa productiva; ejecute y guarde para actualizar su Excel.")
+    elif saved and previous.get("workload_model") != "technical_daily_transversal_weekly_profiles_v1":
+        st.info("La vista previa corrige la carga transversal a 2 horas semanales por ficha. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
     preview, staff, problem = None, None, None
     with settings:
         year, targets, rules = virtual_parameters(previous)

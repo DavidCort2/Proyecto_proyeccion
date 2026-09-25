@@ -34,7 +34,7 @@ def export_virtual_schedule(instructors, plan):
         pd.DataFrame([{"Programa": item["program"], **row,
                        "Incluida en planeación": not lective_only or is_lective_activity(row),
                        ("Carga aplicada" if automatic else "Horas docentes por ficha para planeación"):
-                           ("Regla diaria por perfil activo; ver trazabilidad" if is_lective_activity(row) else "Excluida") if automatic else row["instructor_hours"] if not lective_only or is_lective_activity(row) else 0}
+                           ("Carga por tipo y perfil activo; ver trazabilidad" if is_lective_activity(row) else "Excluida") if automatic else row["instructor_hours"] if not lective_only or is_lective_activity(row) else 0}
                       for item in catalog for row in item["activities"]]).to_excel(writer, sheet_name="Actividades y clasificacion", index=False)
         pd.DataFrame([{"Programa": item["program"], "Observación": warning} for item in catalog for warning in item["warnings"]]).to_excel(writer, sheet_name="Observaciones del origen", index=False)
         pd.DataFrame([{"Criterio": plan["calculation_basis"]}]).to_excel(writer, sheet_name="Criterio de calculo", index=False)

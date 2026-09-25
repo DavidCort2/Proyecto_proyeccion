@@ -138,7 +138,7 @@ def test_virtual_manual_workflow_save_reopen_and_export(module_args):
     edit(app, "virtual:virtual_cohorts_", added=[{
         "Programa": "Software", "Fecha fin lectiva": "2027-01-14"} for _ in range(2)])
     edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Ana María Pérez", "Cédula": "00123", "Tipo": "Técnico", "Perfil": "Software"}])
-    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "100"
+    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "68"
     button(app, "Ejecutar y guardar planeación").click().run()
     assert not app.exception and not app.error
     path = planning_database(module_args[0], "Virtual")
@@ -153,7 +153,7 @@ def test_virtual_manual_workflow_save_reopen_and_export(module_args):
     reopened.radio(key="nav_modality").set_value("Virtual").run()
     assert not reopened.exception and not reopened.error
     assert reopened.number_input(key="virtual:target_technologist").value == 100
-    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "100"
+    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "68"
     assert not reopened.get("download_button")[0].proto.disabled
 
 
@@ -270,7 +270,7 @@ def test_activity_edits_and_transversal_plant_apply_only_after_saving(module_arg
     assert load_virtual_schedules(path)["schedules"][0]["activities"][0]["teaching_type"] == "Transversal"
     assert not button(app, "Ejecutar y guardar planeación").disabled
     button(app, "Ejecutar y guardar planeación").click().run()
-    assert load_planning(path)[1]["center"]["demanda_total_horas_anuales"] == 120
+    assert load_planning(path)[1]["center"]["demanda_total_horas_anuales"] == 24
 
 
 def test_productive_stage_is_not_editable_and_older_plan_requires_recalculation(module_args):
@@ -288,9 +288,24 @@ def test_productive_stage_is_not_editable_and_older_plan_requires_recalculation(
     reopened.radio(key="nav_modality").set_value("Virtual").run()
     assert not reopened.exception and not reopened.error
     assert any("anterior al cálculo solo lectivo" in item.value for item in reopened.info)
-    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "120"
+    assert next(item.value for item in reopened.metric if item.label == "Total de horas al año") == "88"
     assert reopened.get("download_button")[0].proto.disabled
     assert not reopened.get("download_button")[-1].proto.disabled
     button(reopened, "Ejecutar y guardar planeación").click().run()
     assert load_planning(path)[1]["workload_scope"] == "lectiva"
     assert not reopened.get("download_button")[0].proto.disabled
+
+
+def test_transversal_profile_edit_is_applied_only_after_saving(module_args):
+    app = ready_virtual(open_app(module_args))
+    path = planning_database(module_args[0], "Virtual")
+    base = editor(app, "virtual:schedule_competencies_").value
+    assert base.iloc[1]["Perfil docente"] == "Bilingüismo"
+    edit(app, "virtual:schedule_competencies_", rows={1: {"Perfil docente": "Perfil corregido"}})
+    assert button(app, "Ejecutar y guardar planeación").disabled
+    assert not button(app, "Guardar clasificación de competencias").disabled
+    assert load_virtual_schedules(path)["schedules"][0]["activities"][1]["teaching_profile"] == "Bilingüismo"
+    button(app, "Guardar clasificación de competencias").click().run()
+    assert not app.exception and not app.error
+    assert not button(app, "Ejecutar y guardar planeación").disabled
+    assert load_virtual_schedules(path)["schedules"][0]["activities"][1]["teaching_profile"] == "Perfil corregido"
