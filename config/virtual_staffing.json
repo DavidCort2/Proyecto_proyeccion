@@ -2,5 +2,9 @@
   "general_profile": "Transversal general",
   "bilingual_profile": "Bilingüismo",
   "bilingual_text_pattern": "\\b(?:INGLES|INGLESA|ENGLISH|BILING\\w*)\\b",
-  "source": "El centro confirma que un instructor transversal puede cubrir todos los temas excepto bilingüismo, que utiliza instructores propios. La cantidad de instructores se calcula a partir de horas y capacidad; no está definida en esta configuración."
+  "exclusive_competency_profiles": {
+    "230101507": "Cultura física",
+    "240202501": "Bilingüismo"
+  },
+  "source": "El centro define perfiles exclusivos para bilingüismo y cultura física (educación física). Ambas competencias se identifican por sus códigos comunes a técnicos y tecnólogos, aunque cambie la redacción de los resultados o no mencionen el idioma. Las demás transversales comparten perfil general. La cantidad de instructores se calcula a partir de horas y capacidad; no está definida en esta configuración."
 }

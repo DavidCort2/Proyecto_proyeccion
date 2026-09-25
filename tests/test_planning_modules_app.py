@@ -300,12 +300,92 @@ def test_transversal_profile_edit_is_applied_only_after_saving(module_args):
     app = ready_virtual(open_app(module_args))
     path = planning_database(module_args[0], "Virtual")
     base = editor(app, "virtual:schedule_competencies_").value
-    assert base.iloc[1]["Perfil docente"] == "Bilingüismo"
-    edit(app, "virtual:schedule_competencies_", rows={1: {"Perfil docente": "Perfil corregido"}})
+    assert base.iloc[0]["Perfil docente"] == "Transversal general"
+    edit(app, "virtual:schedule_competencies_", rows={0: {"Tipo": "Transversal", "Perfil docente": "Perfil corregido"}})
     assert button(app, "Ejecutar y guardar planeación").disabled
     assert not button(app, "Guardar clasificación de competencias").disabled
-    assert load_virtual_schedules(path)["schedules"][0]["activities"][1]["teaching_profile"] == "Bilingüismo"
+    assert load_virtual_schedules(path)["schedules"][0]["activities"][0]["teaching_profile"] == "Transversal general"
     button(app, "Guardar clasificación de competencias").click().run()
     assert not app.exception and not app.error
     assert not button(app, "Ejecutar y guardar planeación").disabled
-    assert load_virtual_schedules(path)["schedules"][0]["activities"][1]["teaching_profile"] == "Perfil corregido"
+    assert load_virtual_schedules(path)["schedules"][0]["activities"][0]["teaching_profile"] == "Perfil corregido"
+
+
+def test_physical_education_profile_plant_and_export_preserve_presencial(module_args):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from core.export import export_planning
+    from test_virtual_schedules import FIXTURES
+
+    app = open_app(module_args)
+    save_presencial(app)
+    presencial_before = Path(module_args[0]).read_bytes()
+    path = planning_database(module_args[0], "Virtual")
+    import_virtual_schedules(path, [(name, (FIXTURES / name).read_bytes())
+                                    for name in ("adso_fases.xlsx", "ciberseguridad_fases.xlsx")])
+    app.radio(key="nav_modality").set_value("Virtual").run()
+    competencies = editor(app, "virtual:schedule_competencies_").value
+    physical = competencies[competencies["Competencia"] == "230101507"]
+    assert len(physical) == 1
+    assert physical.iloc[0]["Perfil docente"] == "Cultura física"
+    plant_config = json.loads(editor(app, "virtual:virtual_plant_").proto.columns)
+    assert "Cultura física" in plant_config["Perfil"]["type_config"]["options"]
+    edit(app, "virtual:virtual_programs_", rows={0: {"Nivel": "Tecnólogo"}, 1: {"Nivel": "Técnico"}})
+    app.number_input(key="virtual:planning_year").set_value(2027)
+    app.number_input(key="virtual:target_technical").set_value(250)
+    app.number_input(key="virtual:target_technologist").set_value(250)
+    for q, weight in enumerate([100, 0, 0, 0]):
+        app.number_input(key=f"virtual:intake_weight_{q}").set_value(weight)
+    app.run()
+    button(app, "Ejecutar y guardar planeación").click().run()
+    assert not app.exception and not app.error
+    first = load_planning(path)[1]
+    assert any(row["Perfil"] == "Cultura física" for row in first["contracts"])
+    edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Docente de Educación Física", "Cédula": "456",
+                                               "Tipo": "Transversal", "Perfil": "Cultura física"}])
+    button(app, "Ejecutar y guardar planeación").click().run()
+    assert not app.exception and not app.error
+    saved = load_planning(path)
+    assert not any(row["Perfil"] == "Cultura física" for row in saved[1]["contracts"])
+    assert [r for r in first["contracts"] if r["Tipo"] == "Técnico"] == [r for r in saved[1]["contracts"] if r["Tipo"] == "Técnico"]
+    book = load_workbook(BytesIO(export_planning(*saved)), read_only=True)
+    exported = list(book["Competencias unicas"].values)
+    assert len([row for row in exported[1:] if row[0] == "230101507" and row[2] == "Cultura física"]) == 1
+    assert any("Cultura física" in row for row in book["Cobertura por perfil"].values)
+    assert Path(module_args[0]).read_bytes() == presencial_before
+    reopened = open_app(module_args)
+    reopened.radio(key="nav_modality").set_value("Virtual").run()
+    assert not reopened.exception and not reopened.error
+    assert not reopened.get("download_button")[0].proto.disabled
+
+
+def test_virtual_contracts_show_each_slot_once_and_expose_separate_periods(module_args):
+    app = ready_virtual(open_app(module_args))
+    slots = next(frame.value for frame in app.dataframe if "Cupo de contratación" in frame.value.columns)
+    periods = next(frame.value for frame in app.dataframe if "Período del cupo" in frame.value.columns)
+    assert len(slots) == 2  # Un cupo técnico con pausa y un cupo de Bilingüismo.
+    assert len(periods) == 3
+    technical = slots[slots["Tipo"] == "Técnico"].iloc[0]
+    assert technical["Número de períodos"] == 2
+    assert technical["Pausas sin contratación"] == "2027-01-08 a 2027-01-14"
+    peaks = next(frame.value for frame in app.dataframe if "Primer inicio del pico" in frame.value.columns)
+    assert peaks["Pico simultáneo de contratistas"].sum() == 2
+    assert next(item.value for item in app.metric if item.label == "Total de contratistas requeridos") == "1"
+    app.selectbox(key="virtual:audit_profile").set_value("Bilingüismo").run()
+    assert not app.exception and not app.error
+    activities = next(frame.value for frame in app.dataframe if "Código de actividad" in frame.value.columns)
+    assert len(activities) == 1
+    assert activities.iloc[0]["Competencia"] == "240202501"
+    assert activities.iloc[0]["Fase"] == "Fase 2 · Planeación"
+
+
+def test_bilingual_profile_editor_cannot_assign_general_capacity(module_args):
+    app = ready_virtual(open_app(module_args))
+    path = planning_database(module_args[0], "Virtual")
+    original = load_virtual_schedules(path)
+    edit(app, "virtual:schedule_competencies_", rows={1: {"Perfil docente": "Transversal general"}})
+    button(app, "Guardar clasificación de competencias").click().run()
+    assert not app.exception
+    assert any("perfil exclusivo Bilingüismo" in node.value for node in app.error)
+    assert button(app, "Ejecutar y guardar planeación").disabled
+    assert load_virtual_schedules(path) == original

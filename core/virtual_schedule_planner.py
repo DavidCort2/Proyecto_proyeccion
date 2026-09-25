@@ -17,6 +17,7 @@ from core.virtual_schedule import duration_boundary, duration_sum, finite_hours,
 from core.virtual_staffing import build_staffing, workdays
 
 DAY = timedelta(days=1)
+WORKLOAD_MODEL = "technical_daily_transversal_weekly_profiles_v3"
 
 
 @dataclass(frozen=True)
@@ -245,7 +246,7 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
     inputs = {"programs": canonical_programs, "cohorts": canonical_cohorts, "plant": canonical_plant,
               "offers": [value.isoformat() for value in dates]}
     execution = {"planning_mode": "virtual_schedule_v3", "workload_scope": "lectiva", "input_mode": "virtual_manual",
-                 "workload_model": "technical_daily_transversal_weekly_profiles_v1",
+                 "workload_model": WORKLOAD_MODEL,
                  "training_type": "Titulada", "modality": "Virtual", "planning_year": year,
                  "targets_by_level": targets, "target_learners": sum(targets.values()), "rules": asdict(rules),
                  "source_name": "Cronogramas Excel, fases y atención diaria por ficha",
@@ -276,7 +277,9 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                      "La planta cubre primero su perfil; los contratistas cubren las fichas restantes. Las horas libres se muestran y no se suman entre personas "
                      "para inventar cupos completos adicionales. Un técnico atiende su programa; un transversal comparte las competencias "
                      "asignadas al mismo perfil docente entre programas. El centro definió un perfil transversal general para todos los temas "
-                     "excepto bilingüismo, que tiene perfil propio. La identificación por texto y la clasificación pueden corregirse en el catálogo. "
+                     "excepto bilingüismo y cultura física, que tienen perfiles exclusivos. Se reconocen por sus códigos de competencia "
+                     "comunes a técnicos y tecnólogos, aunque los resultados se redacten diferente. Cultura física exige un instructor de educación física. "
+                     "Las demás clasificaciones y perfiles pueden corregirse en el catálogo. "
                      "Dos competencias distintas activas en una ficha suman sus horas; varios resultados de una misma competencia no las multiplican. "
                      "Los picos se calculan en cada cambio de fase y las fechas de contrato indican los intervalos de necesidad dentro de la vigencia. "
                      "La etapa productiva y antiguas horas manuales por actividad no intervienen en el cálculo."

@@ -57,7 +57,7 @@ def schedule_inputs(path):
     st.subheader("Clasificar competencias únicas")
     st.caption("En la columna Tipo puede elegir Técnico o Transversal para cada competencia y pulsar Guardar clasificación de competencias. La decisión se aplica a todas sus actividades y programas. Cada código aparece una sola vez; la carga se calcula solo en los bloques donde se cursa esa competencia.")
     st.caption("La clasificación inicial es una sugerencia del texto del Excel. Técnico comparte las 10 horas semanales del programa; cada competencia Transversal activa tiene 2 horas semanales por ficha.")
-    st.caption("Según la configuración del centro, las transversales comparten el perfil Transversal general, excepto Bilingüismo. Puede corregir Perfil docente si la identificación automática no corresponde. Las competencias del mismo perfil suman su carga dentro de una sola capacidad; este campo no modifica la carga técnica.")
+    st.caption("Según la configuración del centro, las transversales comparten el perfil Transversal general, excepto Bilingüismo y Cultura física. Estas dos competencias conservan su tipo Transversal y su perfil exclusivo por código, aunque los resultados se redacten distinto o no mencionen el idioma. Cultura física requiere un instructor de educación física. Puede corregir los demás perfiles. Las competencias del mismo perfil suman su carga dentro de una sola capacidad; este campo no modifica la carga técnica.")
     base = pd.DataFrame(competency_rows(catalog))
     edited = st.data_editor(base, hide_index=True, use_container_width=True,
                             disabled=["Competencia", "Actividad de referencia", "Programas", "Fases"],

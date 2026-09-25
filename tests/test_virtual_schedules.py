@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).parent / "fixtures/virtual_schedules"
 REAL_SCHEDULE = FIXTURES / "cronograma_adso.xlsx"
 
 
-def schedule_bytes(program="Software", durations=(7, 7, 7), start=date(2026, 1, 1), productive_days=0):
+def schedule_bytes(program="Software", durations=(7, 7, 7), start=date(2026, 1, 1), productive_days=0, transversal_code="240202501"):
     book = Workbook()
     sheet = book.active
     sheet.title = "Cronograma"
@@ -33,7 +33,7 @@ def schedule_bytes(program="Software", durations=(7, 7, 7), start=date(2026, 1, 
                   "Tiempo de duración estimado Horas", "Fecha Inicio", "Fecha Final"])
     for i, days in enumerate(durations, 1):
         finish = start + timedelta(days=days - 1)
-        code = "240202501" if i == 2 else "220501092"
+        code = transversal_code if i == 2 else "220501092"
         text = "Conversación en inglés" if i == 2 else "Desarrollo de software"
         sheet.append([f"Fase {i} {'Análisis' if i == 1 else 'Planeación' if i == 2 else 'Ejecución'}", f"AP{i} Proyecto",
                       f"GA{i}-{code}-AA1 {text}", days, f"{i * 100} HORAS", start, finish])
@@ -150,15 +150,15 @@ def test_missing_duration_rejected_instead_of_inferred_from_cohort_dates():
 
 
 def test_manual_classification_applies_across_programs_phases_and_reimports(tmp_path):
-    path, catalog = configured_catalog(tmp_path)
-    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes"))])
+    path, catalog = configured_catalog(tmp_path, transversal_code="123456789")
+    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", transversal_code="123456789"))])
     rows = competency_rows(catalog)
     for row in rows:
         row["Tipo"] = "Técnico"
     save_choices(path, catalog, rows)
-    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", durations=(14, 7, 7)))])
+    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", durations=(14, 7, 7), transversal_code="123456789"))])
     assert all(row["Tipo"] == "Técnico" for row in competency_rows(catalog))
-    assert all(a["classification_source"] == "manual" for i in catalog["schedules"] for a in i["activities"] if a["competency"] == "240202501")
+    assert all(a["classification_source"] == "manual" for i in catalog["schedules"] for a in i["activities"] if a["competency"] == "123456789")
 
 
 def test_continuing_end_date_reconstructs_only_pending_phases(tmp_path):

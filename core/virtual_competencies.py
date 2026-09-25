@@ -24,17 +24,22 @@ def teaching_profile(activity):
 
 
 def assign_teaching_profiles(activities):
-    """Política declarada por el centro, con correcciones manuales por competencia."""
+    """Aplica perfiles por competencia, incluidos los exclusivos del centro."""
     policy = json.loads((Path(__file__).resolve().parents[1] / "config" / "virtual_staffing.json").read_text(encoding="utf-8"))
     references = json.loads((Path(__file__).resolve().parents[1] / "config" / "virtual_competency_references.json").read_text(encoding="utf-8"))
     grouped = defaultdict(list)
     for row in activities:
         grouped[row["competency"]].append(row)
     for rows in grouped.values():
+        required = policy.get("exclusive_competency_profiles", {}).get(rows[0]["competency"])
         manual = {teaching_profile(row) for row in rows if row.get("profile_source") == "manual"}
-        if len(manual) > 1:
+        if not required and len(manual) > 1:
             raise ValueError(f"La competencia {rows[0]['competency']} tiene varios perfiles manuales; unifique su perfil.")
-        if manual:
+        if required:
+            # La nueva decisión del centro sustituye agrupaciones anteriores,
+            # incluso manuales. No depende del programa ni del texto del resultado.
+            profile, source = required, "center_policy"
+        elif manual:
             profile, source = manual.pop(), "manual"
         else:
             reference = references.get(rows[0]["competency"], {})
@@ -43,6 +48,11 @@ def assign_teaching_profiles(activities):
             source = "automatic"
         for row in rows:
             row.update(teaching_profile=profile, profile_source=source)
+            if required:
+                row.update(teaching_type="Transversal", classification_source="center_policy",
+                           required_teaching_profile=required)
+            else:
+                row.pop("required_teaching_profile", None)
             if row["competency"] in references:
                 row["profile_reference"] = references[row["competency"]]["source_url"]
 

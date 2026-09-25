@@ -110,19 +110,20 @@ def test_profile_policy_keeps_bilingualism_separate_using_authoritative_identity
     catalog = real_catalog(tmp_path)
     rows = {row["Competencia"]: row for row in competency_rows(catalog) if row["Tipo"] == "Transversal"}
     assert rows["240202501"]["Perfil docente"] == "Bilingüismo"
-    assert {row["Perfil docente"] for code, row in rows.items() if code != "240202501"} == {"Transversal general"}
+    assert rows["230101507"]["Perfil docente"] == "Cultura física"
+    assert {row["Perfil docente"] for code, row in rows.items() if code not in {"240202501", "230101507"}} == {"Transversal general"}
     assert all(row["profile_reference"].startswith("https://normograma.sena.edu.co/")
                for item in catalog["schedules"] for row in item["activities"] if row["competency"] == "240202501")
 
 
 def test_manual_profile_is_global_persistent_and_reimportable(tmp_path):
-    path, catalog = configured_catalog(tmp_path)
-    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes"))])
+    path, catalog = configured_catalog(tmp_path, transversal_code="123456789")
+    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", transversal_code="123456789"))])
     choices = competency_rows(catalog)
     for row in choices:
         if row["Tipo"] == "Transversal":
             row["Perfil docente"] = "Perfil revisado por el centro"
     save_choices(path, catalog, choices)
-    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", durations=(14, 7, 7)))])
+    catalog = import_virtual_schedules(path, [("Redes.xlsx", schedule_bytes(program="Redes", durations=(14, 7, 7), transversal_code="123456789"))])
     assert {row["Perfil docente"] for row in competency_rows(catalog) if row["Tipo"] == "Transversal"} == {"Perfil revisado por el centro"}
     assert load_virtual_schedules(path) == catalog

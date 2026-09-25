@@ -8,7 +8,8 @@ import streamlit as st
 
 from core.database import database_reset_version, load_planning, save_planning
 from core.export import export_planning
-from core.virtual_schedule_planner import VirtualRules, execute_virtual_schedule_plan
+from core.virtual_schedule_planner import WORKLOAD_MODEL, VirtualRules, execute_virtual_schedule_plan
+from core.virtual_staffing_reports import contract_reports, profile_peak_rows, schedule_activity_rows
 from ui.planning_session import clear_module_session, scoped_key, widget_key
 from ui.system_reset import render_system_reset
 from ui.virtual_schedule_input import manual_schedule_inputs, schedule_inputs
@@ -56,6 +57,9 @@ def render_virtual_summary(plan):
     c1.metric("Técnicos en el pico", summary["tecnicos_en_pico"])
     c2.metric("Transversales en el pico", summary["transversales_en_pico"])
     st.caption("Los técnicos y transversales mostrados corresponden al mismo intervalo. La contratación se calcula cuando cambian las actividades; un promedio mensual no oculta los picos de carga.")
+    st.markdown("**Picos por perfil docente**")
+    st.dataframe(pd.DataFrame(profile_peak_rows(plan["staffing"], plan["rules"])), hide_index=True, use_container_width=True)
+    st.caption("Cada fila muestra el máximo simultáneo de ese perfil. Sus picos pueden ocurrir en fechas distintas: el total superior se obtiene comparando los intervalos, no sumando estos máximos. Una atención transversal es una competencia activa de una ficha; sus distintos resultados no multiplican las horas.")
     st.bar_chart(pd.DataFrame(plan["quarterly"]).set_index("Trimestre")[["Pico simultáneo de contratistas"]])
 
 
@@ -65,7 +69,10 @@ def render_virtual_details(plan):
     c2.metric("Fichas nuevas proyectadas", plan["center"]["fichas_nuevas"])
     c3.metric("Fichas que pasan", plan["center"]["fichas_que_pasan"])
     st.caption("El total corresponde únicamente a horas de instructor de etapa lectiva dentro de la vigencia. La etapa productiva y su seguimiento están excluidos.")
-    for key, label in [("contracts", "Contratistas requeridos y fechas"), ("offers_by_program", "Fichas nuevas por programa y oferta"),
+    slots, periods = contract_reports(plan["contracts"])
+    tables = {**plan, "contract_slots": slots, "contract_periods": periods}
+    for key, label in [("contract_slots", "Contratistas requeridos y fechas"),
+                       ("contract_periods", "Detalle de períodos de contratación"), ("offers_by_program", "Fichas nuevas por programa y oferta"),
                        ("quarterly", "Necesidad y excedentes de contratistas por trimestre"),
                        ("cohort_dates", "Fechas y fases de las fichas"), ("levels", "Metas por nivel"),
                        ("periods", "Contratación por intervalos del cronograma"), ("monthly", "Resumen mensual"),
@@ -74,11 +81,18 @@ def render_virtual_details(plan):
                        ("monthly_assignments", "Asignación mensual de fichas a instructores"),
                        ("staffing", "Cobertura de planta por tipo y perfil"), ("activity_hours", "Horas por fase y competencia")]:
         with st.expander(label):
-            if key == "contracts":
-                st.caption("Cada fila es un intervalo en que se requiere ese cupo. Un mismo cupo puede reaparecer después de una pausa. El 31 de diciembre es el límite de esta vigencia, no el fin lectivo de las fichas que continúan.")
+            if key == "contract_slots":
+                st.caption("Cada cupo aparece una sola vez, con todos sus períodos y pausas. N.º de cupo es un identificador: cupo 2 significa el segundo instructor de ese perfil, no dos instructores por fila. La última fecha no implica contratación continua durante las pausas.")
+            if key == "contract_periods":
+                st.caption("Un mismo cupo puede tener varios períodos; no se suman como instructores adicionales. El 31 de diciembre es el límite de esta vigencia, no el fin lectivo de las fichas que continúan.")
             if key == "monthly_assignments":
                 st.caption("Asignación indicativa por capacidad y perfil; las fichas nuevas se identifican con un consecutivo de proyección, no con un código oficial.")
-            st.dataframe(pd.DataFrame(plan[key]), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(tables[key]), hide_index=True, use_container_width=True)
+    with st.expander("Resultados del cronograma por perfil"):
+        activities = pd.DataFrame(schedule_activity_rows(plan["schedule_catalog"]))
+        profile = st.selectbox("Perfil docente a revisar", sorted(activities["Perfil"].unique()), key=widget_key("audit_profile"))
+        st.caption("Estas son todas las actividades identificadas en los Excel para el perfil. El código de competencia las vincula aunque cambie su redacción; varias actividades de una competencia generan una sola carga por ficha mientras esté activa. Las fechas de cada cohorte se consultan en Horas por fase y competencia.")
+        st.dataframe(activities[activities["Perfil"] == profile], hide_index=True, use_container_width=True)
     with st.expander("Criterios utilizados"):
         st.write(plan["calculation_basis"])
 
@@ -105,8 +119,8 @@ def render_virtual_schedule_planning(path):
         st.warning("La ejecución anterior se conserva para descargarla. Para actualizarla cargue los cronogramas, indique las fechas de fin lectiva de las fichas que pasan y complete los nombres y cédulas de planta.")
     elif saved and previous.get("workload_scope") != "lectiva":
         st.info("La ejecución guardada es anterior al cálculo solo lectivo. La vista previa excluye la etapa productiva; ejecute y guarde para actualizar su Excel.")
-    elif saved and previous.get("workload_model") != "technical_daily_transversal_weekly_profiles_v1":
-        st.info("La vista previa corrige la carga transversal a 2 horas semanales por ficha. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
+    elif saved and previous.get("workload_model") != WORKLOAD_MODEL:
+        st.info("La vista previa identifica Bilingüismo y Cultura física por sus códigos, con perfiles exclusivos. Cada competencia transversal activa aporta 2 horas semanales por ficha, sin multiplicar por sus resultados. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
     preview, staff, problem = None, None, None
     with settings:
         year, targets, rules = virtual_parameters(previous)

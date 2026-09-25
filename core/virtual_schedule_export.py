@@ -2,6 +2,7 @@
 from io import BytesIO
 import pandas as pd
 from core.virtual_schedule import is_lective_activity
+from core.virtual_staffing_reports import contract_reports, profile_peak_rows, schedule_activity_rows
 
 
 def export_virtual_schedule(instructors, plan):
@@ -23,6 +24,11 @@ def export_virtual_schedule(instructors, plan):
             pd.DataFrame(plan[key]).to_excel(writer, sheet_name=sheet, index=False)
         if automatic:
             from core.virtual_competencies import competency_rows
+            slots, periods = contract_reports(plan["contracts"])
+            pd.DataFrame(slots).to_excel(writer, sheet_name="Cupos de contratacion", index=False)
+            pd.DataFrame(periods).to_excel(writer, sheet_name="Periodos por cupo", index=False)
+            pd.DataFrame(profile_peak_rows(plan["staffing"], plan["rules"])).to_excel(writer, sheet_name="Picos por perfil", index=False)
+            pd.DataFrame(schedule_activity_rows(plan["schedule_catalog"])).to_excel(writer, sheet_name="Resultados por perfil", index=False)
             for key, sheet in [("quarterly", "Resumen trimestral"), ("monthly_fichas", "Horas mensuales por ficha"),
                                ("monthly_instructors", "Capacidad por instructor"), ("monthly_assignments", "Asignaciones mensuales")]:
                 pd.DataFrame(plan[key]).to_excel(writer, sheet_name=sheet, index=False)

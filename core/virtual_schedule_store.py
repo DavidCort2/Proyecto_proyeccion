@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS virtual_schedules (
 """
 
 
+def _validate_exclusive_profile(activity, kind, profile):
+    required = activity.get("required_teaching_profile")
+    if required and (kind != "Transversal" or name_key(profile) != name_key(required)):
+        raise ValueError(f"La competencia {activity['competency']} requiere Tipo Transversal y el perfil exclusivo {required}, "
+                         "según la configuración del centro. No puede compartir la capacidad de otros perfiles.")
+
+
 def load_virtual_schedules(path):
     if not Path(path).exists():
         return {"schedules": []}
@@ -74,10 +81,10 @@ def import_virtual_schedules(path, files):
             manual = {row["competency"]: row["teaching_type"] for row in activities
                       if row.get("classification_source") == "manual"}
             suggest_classifications(activities)
-            assign_teaching_profiles(activities)
             for row in activities:
                 if row["competency"] in manual:
                     row.update(teaching_type=manual[row["competency"]], classification_source="manual")
+            assign_teaching_profiles(activities)
             for item in schedules:
                 db.execute("UPDATE virtual_schedules SET payload=? WHERE program_key=?",
                            (json.dumps(item, ensure_ascii=False, allow_nan=False), item["program_key"]))
@@ -95,6 +102,7 @@ def save_virtual_activity_settings(path, program_key, source_digest, settings):
                 raise ValueError("El cronograma cambió en otra sesión. Recargue antes de guardar la clasificación.")
             keyed = {row["id"]: row for row in settings}
             activities = lective_activities(item)
+            assign_teaching_profiles(activities)
             required_ids = {row["id"] for row in activities}
             source_ids = {row["id"] for row in item["activities"]}
             if len(keyed) != len(settings) or not required_ids <= set(keyed) <= source_ids:
@@ -105,6 +113,7 @@ def save_virtual_activity_settings(path, program_key, source_digest, settings):
                 choice = keyed[row["id"]]
                 if choice["teaching_type"] not in {None, "Técnico", "Transversal"}:
                     raise ValueError("Seleccione Técnico o Transversal para las actividades.")
+                _validate_exclusive_profile(row, choice["teaching_type"], teaching_profile(row))
                 row["teaching_type"] = choice["teaching_type"]
                 row["classification_source"] = "manual"
                 row["instructor_hours"] = (None if choice["instructor_hours"] is None else
@@ -135,6 +144,7 @@ def save_virtual_competencies(path, expected_digests, settings):
                 profiles[code] = canonical.setdefault(name_key(profile), " ".join(profile.split()))
             for item in schedules:
                 for row in lective_activities(item):
+                    _validate_exclusive_profile(row, choices[row["competency"]], profiles[row["competency"]])
                     if row["teaching_type"] != choices[row["competency"]]:
                         row.update(teaching_type=choices[row["competency"]], classification_source="manual")
                     if teaching_profile(row) != profiles[row["competency"]]:
