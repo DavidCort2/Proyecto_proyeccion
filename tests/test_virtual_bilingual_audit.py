@@ -72,7 +72,7 @@ def test_bilingual_blocks_respect_each_program_offer_and_continuing_end(tmp_path
     timeline = [row for row in result["activity_hours"] if row["Perfil"] == PROFILE]
     assert min(row["Inicio"] for row in timeline) == start
     assert max(row["Fin"] for row in timeline) == until
-    assert all(row["Horas semanales por ficha"] == 2 for row in timeline)
+    assert all(row["Horas semanales por ficha"] == 5 for row in timeline)
     day = date(2027, 1, 1)
     hours = 0
     while day.year == 2027:
@@ -80,15 +80,15 @@ def test_bilingual_blocks_respect_each_program_offer_and_continuing_end(tmp_path
             expected = start <= day.isoformat() <= until
             active = [row for row in timeline if row["Inicio"] <= day.isoformat() <= row["Fin"]]
             assert len(active) == int(expected)  # Dos AA en un bloque no duplican la ficha.
-            hours += 10 * 2 / 5 if expected else 0
+            hours += 10 if expected else 0
         day += DAY
     assert sum(row["Horas instructor en vigencia"] for row in timeline) == pytest.approx(hours)
-    assert max(row["Contratistas requeridos"] for row in result["staffing"] if row["Perfil"] == PROFILE) == 1
+    assert max(row["Contratistas requeridos"] for row in result["staffing"] if row["Perfil"] == PROFILE) == 2
 
 
 @pytest.mark.parametrize("fichas,plant_count,capacity,required", [
-    (16, 0, 40, 1), (20, 0, 40, 1), (21, 0, 40, 2),
-    (16, 1, 40, 0), (17, 1, 40, 1), (37, 1, 40, 2), (16, 0, 30, 2),
+    (7, 0, 40, 1), (8, 0, 40, 1), (9, 0, 40, 2),
+    (6, 1, 40, 0), (7, 1, 40, 1), (15, 1, 40, 2), (7, 0, 30, 2),
 ])
 def test_bilingual_contractors_are_derived_from_hours_not_a_fixed_count(tmp_path, fichas, plant_count, capacity, required):
     _, catalog = configured_catalog(tmp_path)
@@ -102,7 +102,7 @@ def test_bilingual_contractors_are_derived_from_hours_not_a_fixed_count(tmp_path
                      rules=VirtualRules(weekly_contractor_hours=capacity, intake_weights=(100, 0, 0, 0)))
     high = max((row for row in result["staffing"] if row["Perfil"] == PROFILE), key=lambda r: r["Fichas activas"])
     assert high["Atenciones activas"] == fichas
-    assert high["Horas requeridas (h/sem)"] == fichas * 2
+    assert high["Horas requeridas (h/sem)"] == fichas * 5
     assert high["Contratistas requeridos"] == required
     assert high["Capacidad planta (h/sem)"] == plant_count * 32
 
@@ -137,14 +137,15 @@ def test_daily_capacity_ledger_matches_all_transversal_periods_months_and_contra
             for profile in [PROFILE, "Transversal general", "Cultura física"]:
                 row, = [row for row in result["staffing"] if row["Perfil"] == profile and row["Inicio"] <= day.isoformat() <= row["Fin"]]
                 units = len(tasks[profile])
-                plant_slots = 16 if profile in {PROFILE, "Transversal general"} else 0
-                contracts = math.ceil(max(0, units - plant_slots) / 20)
+                plant_slots = 6 if profile in {PROFILE, "Transversal general"} else 0
+                support_slots = row["Atenciones cubiertas por apoyo técnico"]
+                contracts = math.ceil(max(0, units - plant_slots - support_slots) / 8)
                 assert row["Atenciones activas"] == units
-                assert row["Horas requeridas (h/sem)"] == units * 2
+                assert row["Horas requeridas (h/sem)"] == units * 5
                 assert row["Contratistas requeridos"] == contracts
                 current = [r for r in result["contracts"] if r["Perfil"] == profile and r["Inicio"] <= day.isoformat() <= r["Fin"]]
                 assert len(current) == len({r["Cupo"] for r in current}) == contracts
-                monthly[day.month] += units * 2 / 5
+                monthly[day.month] += units
         day += DAY
     for month, expected in monthly.items():
         actual = sum(row["Horas transversales"] for row in result["monthly_fichas"] if row["Mes"] == month)
@@ -161,7 +162,7 @@ def test_contract_slot_with_three_periods_is_one_person_and_retains_all_gaps(tmp
         another = deepcopy(first)
         another.update(id=f"block{index}", block_id=f"B{index}", start_offset=start)
         catalog["schedules"][0]["activities"].append(another)
-    staff, result = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 21 * 25})
+    staff, result = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 9 * 25})
     slots, periods = contract_reports(list(reversed(result["contracts"])))
     assert len(slots) == 2
     assert len(periods) == 6
@@ -170,7 +171,7 @@ def test_contract_slot_with_three_periods_is_one_person_and_retains_all_gaps(tmp
     assert [row["Período del cupo"] for row in periods if row["Cupo"] == 2] == ["1 de 3", "2 de 3", "3 de 3"]
     peaks = profile_peak_rows(result["staffing"], result["rules"])
     assert peaks[0]["Pico simultáneo de contratistas"] == 2
-    assert peaks[0]["Máxima carga (h/sem)"] == 42
+    assert peaks[0]["Máxima carga (h/sem)"] == 45
     assert result["summary"]["pico_contratistas_total"] == 2
     path = tmp_path / "saved.sqlite3"
     save_planning(path, staff, result)

@@ -9,7 +9,7 @@ from test_virtual_schedules import configured_catalog, person, plan, real_catalo
 
 
 @pytest.mark.parametrize("code", ["111111111", "987654321"])
-@pytest.mark.parametrize("fichas,plants,contracts", [(10, 0, 1), (20, 0, 1), (21, 0, 2), (16, 1, 0), (17, 1, 1), (36, 1, 1)])
+@pytest.mark.parametrize("fichas,plants,contracts", [(7, 0, 1), (8, 0, 1), (9, 0, 2), (6, 1, 0), (7, 1, 1), (14, 1, 1)])
 def test_weekly_load_uses_active_fichas_and_capacity_for_any_competency(tmp_path, code, fichas, plants, contracts):
     _, catalog = configured_catalog(tmp_path, durations=(7,))
     activity = catalog["schedules"][0]["activities"][0]
@@ -17,18 +17,18 @@ def test_weekly_load_uses_active_fichas_and_capacity_for_any_competency(tmp_path
     _, result = plan(catalog, targets={"Técnico": 0, "Tecnólogo": fichas * 25},
                      plant=[person(kind="Transversal", profile=code)] if plants else [])
     active = next(r for r in result["staffing"] if r["Fichas activas"])
-    assert active["Horas requeridas (h/sem)"] == fichas * 2
+    assert active["Horas requeridas (h/sem)"] == fichas * 5
     assert active["Contratistas requeridos"] == contracts
-    assert active["Máximo fichas por contratista"] == 20  # Sale de 40/2; no depende del código.
-    assert active["Máximo fichas por planta"] == 16
-    assert result["center"]["demanda_total_horas_anuales"] == fichas * 2
+    assert active["Máximo fichas por contratista"] == 8  # Sale de 40/5; no depende del código.
+    assert active["Máximo fichas por planta"] == 6
+    assert result["center"]["demanda_total_horas_anuales"] == fichas * 5
     for row in result["monthly_instructors"]:
         assert row["Horas asignadas"] <= row["Capacidad en horas"]
         if row["Vinculación"] == "Contratista":
-            assert row["Pico fichas asignadas"] <= 20
+            assert row["Pico fichas asignadas"] <= 8
 
 
-def test_capacity_is_derived_not_fixed_to_twenty(tmp_path):
+def test_capacity_is_derived_not_fixed_to_eight(tmp_path):
     _, catalog = configured_catalog(tmp_path, durations=(7,))
     catalog["schedules"][0]["activities"][0].update(competency="111111111", teaching_type="Transversal")
     _, result = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 11 * 25},
@@ -50,9 +50,9 @@ def test_transversal_stops_at_its_block_and_duplicate_results_do_not_add_hours(t
     _, result = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 10 * 25})
     rows = [r for r in result["staffing"] if r["Tipo"] == "Transversal" and r["Fichas activas"]]
     assert [(r["Inicio"], r["Fin"]) for r in rows] == [("2027-01-08", "2027-01-14")]
-    assert sum(r["Horas requeridas"] for r in rows) == 20
-    assert sum(r["Horas transversales"] for r in result["monthly_fichas"]) == 20
-    assert [(r["Inicio"], r["Fin"]) for r in result["contracts"] if r["Tipo"] == "Transversal"] == [("2027-01-08", "2027-01-14")]
+    assert sum(r["Horas requeridas"] for r in rows) == 50
+    assert sum(r["Horas transversales"] for r in result["monthly_fichas"]) == 50
+    assert [(r["Inicio"], r["Fin"]) for r in result["contracts"] if r["Tipo"] == "Transversal"] == [("2027-01-08", "2027-01-14")] * 2
 
 
 def test_real_schedules_technical_results_do_not_change_when_transversal_rate_changes(tmp_path):
@@ -62,8 +62,11 @@ def test_real_schedules_technical_results_do_not_change_when_transversal_rate_ch
                      plant=[person(profile=catalog["schedules"][0]["program"])])
     _, old = plan(catalog, **arguments, rules=VirtualRules(weekly_transversal_hours_per_ficha=10))
     _, new = plan(catalog, **arguments, rules=VirtualRules())
-    for key in ("staffing", "activity_hours", "contracts", "monthly_instructors", "monthly_assignments"):
+    for key in ("staffing", "activity_hours", "contracts", "monthly_assignments"):
         assert [row for row in old[key] if row["Tipo"] == "Técnico"] == [row for row in new[key] if row["Tipo"] == "Técnico"]
+    technical_hours = lambda result: {(row["Mes"], row["Instructor"]): row["Horas técnicas asignadas"]
+                                     for row in result["monthly_instructors"] if row["Tipo"] == "Técnico"}
+    assert technical_hours(old) == technical_hours(new)
     assert old["cohort_dates"] == new["cohort_dates"]
     assert old["offers_by_program"] == new["offers_by_program"]
     old_months = {(r["Mes"], r["Ficha proyectada"]): r for r in old["monthly_fichas"]}
@@ -72,7 +75,7 @@ def test_real_schedules_technical_results_do_not_change_when_transversal_rate_ch
     for key, old_month in old_months.items():
         new_month = new_months[key]
         assert old_month["Horas técnicas"] == new_month["Horas técnicas"]
-        assert new_month["Horas transversales"] == pytest.approx(old_month["Horas transversales"] / 5)
+        assert new_month["Horas transversales"] == pytest.approx(old_month["Horas transversales"] / 2)
 
 
 def test_shared_profile_adds_distinct_competencies_but_not_repeated_results(tmp_path):
@@ -89,21 +92,21 @@ def test_shared_profile_adds_distinct_competencies_but_not_repeated_results(tmp_
     active = next(row for row in result["staffing"] if row["Fichas activas"])
     assert active["Fichas activas"] == 10
     assert active["Atenciones activas"] == 20
-    assert active["Horas requeridas (h/sem)"] == 40
-    assert active["Contratistas requeridos"] == 1
-    assert sum(row["Horas requeridas"] for row in result["monthly_fichas"]) == 40
+    assert active["Horas requeridas (h/sem)"] == 100
+    assert active["Contratistas requeridos"] == 3
+    assert sum(row["Horas requeridas"] for row in result["monthly_fichas"]) == 100
     instructor = next(row for row in result["monthly_instructors"] if row["Horas asignadas"])
-    assert instructor["Pico fichas asignadas"] == 10
-    assert instructor["Pico atenciones asignadas"] == 20
-    assert all(row["Horas asignadas"] == 4 for row in result["monthly_assignments"])
+    assert instructor["Pico fichas asignadas"] == 4
+    assert instructor["Pico atenciones asignadas"] == 8
+    assert all(row["Horas asignadas"] == 10 for row in result["monthly_assignments"])
     assert all(row["Competencias"] == "111111111, 222222222" for row in result["monthly_assignments"])
     _, with_plant = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 10 * 25},
                          plant=[person(kind="Transversal", profile="Perfil compartido")])
     covered = next(row for row in with_plant["staffing"] if row["Fichas activas"])
-    assert covered["Atenciones cubiertas por planta"] == 16
-    assert covered["Fichas cubiertas por planta"] == 8
-    assert covered["Horas cubiertas por planta"] == 32
-    assert covered["Horas a contratar"] == 8
+    assert covered["Atenciones cubiertas por planta"] == 6
+    assert covered["Fichas cubiertas por planta"] == 3
+    assert covered["Horas cubiertas por planta"] == 30
+    assert covered["Horas a contratar"] == 70
 
 
 def test_profile_policy_keeps_bilingualism_separate_using_authoritative_identity(tmp_path):

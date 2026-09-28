@@ -61,13 +61,13 @@ def test_new_fichas_use_the_program_block_and_offer_date(tmp_path, index, offer,
     assert (activity["Inicio"], activity["Fin"]) == (start, finish)
     assert activity["Competencias"] == CODE
     assert activity["Fichas"] == 10
-    assert activity["Horas semanales por ficha"] == 2
-    expected = 10 * 2 * workdays(date.fromisoformat(start), date.fromisoformat(finish) + timedelta(days=1)) / 5
+    assert activity["Horas semanales por ficha"] == 5
+    expected = 10 * workdays(date.fromisoformat(start), date.fromisoformat(finish) + timedelta(days=1))
     assert activity["Horas instructor en vigencia"] == pytest.approx(expected)
     assert sum(r["Horas requeridas"] for r in physical_rows(result, "staffing")) == pytest.approx(expected)
-    contract, = physical_rows(result, "contracts")
-    assert (contract["Inicio"], contract["Fin"]) == (start, finish)
-    assert contract["Cupo"] == 1
+    contracts = physical_rows(result, "contracts")
+    assert {(r["Inicio"], r["Fin"]) for r in contracts} == {(start, finish)}
+    assert {r["Cupo"] for r in contracts} == {1, 2}
     assert all(r["Contratistas requeridos"] == 0 for r in physical_rows(result, "staffing")
                if r["Fin"] < start or r["Inicio"] > finish)
 
@@ -84,8 +84,8 @@ def test_continuing_fichas_reconstruct_only_their_pending_physical_block(tmp_pat
     activity, = physical_rows(result)
     assert (activity["Inicio"], activity["Fin"]) == (start, finish)
     assert result["center"]["fichas_nuevas"] == 0
-    assert max(r["Horas requeridas (h/sem)"] for r in physical_rows(result, "staffing")) == 20
-    assert max(r["Contratistas requeridos"] for r in physical_rows(result, "staffing")) == 1
+    assert max(r["Horas requeridas (h/sem)"] for r in physical_rows(result, "staffing")) == 50
+    assert max(r["Contratistas requeridos"] for r in physical_rows(result, "staffing")) == 2
 
 
 def test_already_completed_physical_block_is_not_repeated_and_later_offers_wait(tmp_path):
@@ -101,9 +101,9 @@ def test_already_completed_physical_block_is_not_repeated_and_later_offers_wait(
 
 
 @pytest.mark.parametrize("adso,cyber,plant_profile,expected", [
-    (10, 10, None, 1), (11, 10, None, 2),
-    (10, 10, "Transversal general", 1),
-    (8, 8, PROFILE, 0), (9, 8, PROFILE, 1), (10, 10, PROFILE, 1),
+    (4, 4, None, 1), (5, 4, None, 2),
+    (4, 4, "Transversal general", 1),
+    (3, 3, PROFILE, 0), (4, 3, PROFILE, 1), (7, 7, PROFILE, 1),
 ])
 def test_one_specialist_shares_capacity_between_new_and_continuing_programs(tmp_path, adso, cyber, plant_profile, expected):
     catalog = real_catalog(tmp_path)
@@ -117,14 +117,14 @@ def test_one_specialist_shares_capacity_between_new_and_continuing_programs(tmp_
     peak = max(rows, key=lambda r: r["Fichas activas"])
     assert peak["Fichas activas"] == adso + cyber
     assert peak["Atenciones activas"] == adso + cyber  # Cuatro resultados por ficha, una sola atención.
-    assert peak["Horas requeridas (h/sem)"] == 2 * (adso + cyber)
+    assert peak["Horas requeridas (h/sem)"] == 5 * (adso + cyber)
     assert peak["Contratistas requeridos"] == expected
     assert peak["Capacidad planta (h/sem)"] == (32 if plant_profile == PROFILE else 0)
-    assert peak["Atenciones cubiertas por planta"] == (16 if plant_profile == PROFILE else 0)
-    assert peak["Máximo fichas por contratista"] == 20
+    assert peak["Atenciones cubiertas por planta"] == (6 if plant_profile == PROFILE else 0)
+    assert peak["Máximo fichas por contratista"] == 8
     for row in physical_rows(result, "monthly_instructors"):
         assert row["Horas asignadas"] <= row["Capacidad en horas"]
-        assert row["Pico atenciones asignadas"] <= (16 if row["Vinculación"] == "Planta" else 20)
+        assert row["Pico atenciones asignadas"] <= (6 if row["Vinculación"] == "Planta" else 8)
     # Las fechas de contratación y cada intervalo deben coincidir exactamente.
     for row in rows:
         active = [contract for contract in physical_rows(result, "contracts")
@@ -183,8 +183,13 @@ def test_separating_physical_profile_preserves_hours_technical_bilingual_and_int
     assert old["center"] == new["center"]
     assert old["cohort_dates"] == new["cohort_dates"]
     assert old["offers_by_program"] == new["offers_by_program"]
-    for key in ("staffing", "contracts", "activity_hours", "monthly_assignments", "monthly_instructors"):
+    for key in ("staffing", "contracts", "activity_hours", "monthly_assignments"):
         for keep in (lambda row: row["Tipo"] == "Técnico", lambda row: row["Perfil"] == "Bilingüismo"):
             assert [r for r in old[key] if keep(r)] == [r for r in new[key] if keep(r)]
+    for result in (old, new):
+        assert all(row["Horas asignadas"] <= row["Capacidad en horas"] + 1e-8 for row in result["monthly_instructors"])
+    technical_hours = lambda result: {(r["Mes"], r["Instructor"]): r["Horas técnicas asignadas"]
+                                     for r in result["monthly_instructors"] if r["Tipo"] == "Técnico"}
+    assert technical_hours(old) == technical_hours(new)
     for key in ("monthly_fichas", "monthly"):
         assert sum(r["Horas requeridas"] for r in old[key]) == pytest.approx(sum(r["Horas requeridas"] for r in new[key]))

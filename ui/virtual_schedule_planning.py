@@ -31,13 +31,14 @@ def virtual_parameters(previous):
                                value=float(defaults.get("weekly_plant_direct_hours", 32)), key=widget_key("weekly_plant_direct_hours"))
         contractor = c3.number_input("Horas semanales por contratista", min_value=1.0,
                                     value=float(defaults.get("weekly_contractor_hours", 40)), key=widget_key("weekly_contractor_hours"))
-        st.caption("Carga técnica: 2 horas diarias por ficha, equivalentes a 10 semanales. Carga transversal: 2 horas semanales por ficha y competencia, únicamente durante los bloques donde está activa. Las fases y su duración provienen del cronograma.")
+        st.caption("Carga técnica: 2 horas diarias por ficha, equivalentes a 10 semanales. Transversal general, Bilingüismo y Cultura física: 1 hora diaria por ficha y competencia de lunes a viernes, equivalente a 5 semanales, únicamente durante los bloques donde está activa. Las fases y su duración provienen del cronograma.")
         capacity_rules = VirtualRules(weekly_plant_direct_hours=plant, weekly_contractor_hours=contractor)
         st.dataframe(pd.DataFrame([{"Tipo": kind, "Horas semanales por ficha": capacity_rules.weekly_hours_for(kind),
                                     "Cupos por contratista": int(contractor // capacity_rules.weekly_hours_for(kind)),
                                     "Cupos por planta": int(plant // capacity_rules.weekly_hours_for(kind))}
                                    for kind in ("Técnico", "Transversal")]), hide_index=True, use_container_width=True)
-        st.caption("En técnico, un cupo atiende una ficha. En transversal, un cupo atiende una competencia de una ficha durante la semana: dos competencias activas suman dos cupos. Las sesiones transversales se distribuyen dentro de la jornada, hasta 8 horas diarias por contratista de 40 horas semanales.")
+        st.caption("En técnico, un cupo atiende una ficha. En transversal, un cupo atiende una competencia de una ficha durante la semana: dos competencias activas suman dos cupos. Con 40 horas semanales se cubren hasta 8 atenciones transversales diarias de una hora; con 32 horas se cubren 6 fichas completas.")
+        st.caption("Las horas libres de los técnicos de planta y de los contratistas técnicos requeridos se usan para apoyar transversal general, después de cubrir su carga técnica. El apoyo toma una atención completa de 5 horas semanales; los saldos menores quedan disponibles. No cubre Bilingüismo ni Cultura física.")
         columns = st.columns(4)
         weights = tuple(columns[i].number_input(f"Ingresos en oferta {i + 1} (%)", min_value=0, max_value=100,
                                                  value=int(defaults.get("intake_weights", [50, 25, 15, 10])[i]),
@@ -70,7 +71,7 @@ def render_virtual_details(plan):
     c3.metric("Fichas que pasan", plan["center"]["fichas_que_pasan"])
     st.caption("El total corresponde únicamente a horas de instructor de etapa lectiva dentro de la vigencia. La etapa productiva y su seguimiento están excluidos.")
     slots, periods = contract_reports(plan["contracts"])
-    tables = {**plan, "contract_slots": slots, "contract_periods": periods}
+    tables = {**plan, "contract_slots": slots, "contract_periods": periods, "technical_support": plan.get("technical_support", [])}
     for key, label in [("contract_slots", "Contratistas requeridos y fechas"),
                        ("contract_periods", "Detalle de períodos de contratación"), ("offers_by_program", "Fichas nuevas por programa y oferta"),
                        ("quarterly", "Necesidad y excedentes de contratistas por trimestre"),
@@ -78,6 +79,7 @@ def render_virtual_details(plan):
                        ("periods", "Contratación por intervalos del cronograma"), ("monthly", "Resumen mensual"),
                        ("monthly_fichas", "Horas y fases de cada ficha por mes"),
                        ("monthly_instructors", "Capacidad y horas disponibles de cada instructor"),
+                       ("technical_support", "Apoyo de instructores técnicos a transversal general"),
                        ("monthly_assignments", "Asignación mensual de fichas a instructores"),
                        ("staffing", "Cobertura de planta por tipo y perfil"), ("activity_hours", "Horas por fase y competencia")]:
         with st.expander(label):
@@ -87,6 +89,12 @@ def render_virtual_details(plan):
                 st.caption("Un mismo cupo puede tener varios períodos; no se suman como instructores adicionales. El 31 de diciembre es el límite de esta vigencia, no el fin lectivo de las fichas que continúan.")
             if key == "monthly_assignments":
                 st.caption("Asignación indicativa por capacidad y perfil; las fichas nuevas se identifican con un consecutivo de proyección, no con un código oficial.")
+            if key == "technical_support":
+                st.caption("El mismo instructor combina carga técnica y apoyo transversal, sin superar su capacidad semanal. Cada fila muestra el apoyo durante ese intervalo; no representa otro instructor contratado.")
+            if key == "monthly_instructors":
+                st.caption("Cada persona aparece una sola vez por mes. Las horas técnicas y transversales asignadas comparten su misma capacidad. El máximo de fichas de su perfil no incluye las atenciones de apoyo.")
+            if key == "staffing":
+                st.caption("Las horas a contratar incluyen todo el trabajo de contratistas. El apoyo técnico contratado ya lo cubren los contratistas técnicos; la columna de contratistas propios del perfil muestra el saldo atendido por contratistas transversales.")
             st.dataframe(pd.DataFrame(tables[key]), hide_index=True, use_container_width=True)
     with st.expander("Resultados del cronograma por perfil"):
         activities = pd.DataFrame(schedule_activity_rows(plan["schedule_catalog"]))
@@ -120,7 +128,7 @@ def render_virtual_schedule_planning(path):
     elif saved and previous.get("workload_scope") != "lectiva":
         st.info("La ejecución guardada es anterior al cálculo solo lectivo. La vista previa excluye la etapa productiva; ejecute y guarde para actualizar su Excel.")
     elif saved and previous.get("workload_model") != WORKLOAD_MODEL:
-        st.info("La vista previa identifica Bilingüismo y Cultura física por sus códigos, con perfiles exclusivos. Cada competencia transversal activa aporta 2 horas semanales por ficha, sin multiplicar por sus resultados. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
+        st.info("La vista previa aplica 1 hora diaria por competencia transversal y ficha, equivalente a 5 semanales, y aprovecha la capacidad técnica disponible para apoyar transversal general. Bilingüismo y Cultura física conservan sus perfiles exclusivos. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
     preview, staff, problem = None, None, None
     with settings:
         year, targets, rules = virtual_parameters(previous)

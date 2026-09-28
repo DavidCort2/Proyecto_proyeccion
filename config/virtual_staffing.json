@@ -1,5 +1,6 @@
 {
   "general_profile": "Transversal general",
+  "technical_support_profile": "Transversal general",
   "bilingual_profile": "Bilingüismo",
   "bilingual_text_pattern": "\\b(?:INGLES|INGLESA|ENGLISH|BILING\\w*)\\b",
   "exclusive_competency_profiles": {

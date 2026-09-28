@@ -17,7 +17,7 @@ from core.virtual_schedule import duration_boundary, duration_sum, finite_hours,
 from core.virtual_staffing import build_staffing, workdays
 
 DAY = timedelta(days=1)
-WORKLOAD_MODEL = "technical_daily_transversal_weekly_profiles_v3"
+WORKLOAD_MODEL = "daily_transversals_with_technical_support_v1"
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class VirtualRules:
     weekly_contractor_hours: float = 40.0
     intake_weights: tuple = (50, 25, 15, 10)
     daily_hours_per_ficha: float = 2.0
-    weekly_transversal_hours_per_ficha: float = 2.0
+    weekly_transversal_hours_per_ficha: float = 5.0
 
     @property
     def weekly_hours_per_ficha(self):
@@ -269,13 +269,16 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                      "La meta incluye las fichas que pasan; el saldo dividido por aprendices por ficha, redondeado hacia arriba, determina las nuevas. "
                      f"Cada ficha requiere {rules.daily_hours_per_ficha:g} horas diarias de lunes a viernes ({rules.weekly_hours_per_ficha:g} semanales) "
                      "para el conjunto de competencias técnicas activas. "
-                     f"Cada competencia transversal requiere {rules.weekly_transversal_hours_per_ficha:g} horas SEMANALES por ficha "
-                     "solo durante los bloques donde aparece en el cronograma. Para distribuir estas horas entre meses y tramos parciales, "
-                     "se prorratea la carga semanal entre los cinco días de lunes a viernes; este prorrateo no equivale a una clase transversal diaria. "
+                     f"Cada competencia transversal requiere {rules.weekly_transversal_hours_per_ficha / 5:g} horas diarias de lunes a viernes "
+                     f"({rules.weekly_transversal_hours_per_ficha:g} semanales por ficha), incluido bilingüismo y cultura física, "
+                     "solo durante los bloques donde aparece en el cronograma. Los meses y tramos parciales cuentan los días lectivos de lunes a viernes. "
                      "Las actividades repetidas de una competencia no multiplican su carga. No se descuentan festivos porque no se cargó un calendario de festivos. "
                      "Se asignan fichas completas a cada instructor: la capacidad semanal dividida por la carga semanal por ficha, redondeada hacia abajo. "
-                     "La planta cubre primero su perfil; los contratistas cubren las fichas restantes. Las horas libres se muestran y no se suman entre personas "
-                     "para inventar cupos completos adicionales. Un técnico atiende su programa; un transversal comparte las competencias "
+                     "La planta cubre primero su perfil. Se resuelve la carga técnica y luego sus horas disponibles, de planta y de contratistas ya requeridos, "
+                     "pueden cubrir atenciones completas de transversal general en ese mismo intervalo. El saldo requiere contratistas transversales. "
+                     "Un apoyo no crea otra persona ni duplica su capacidad, y no prolonga contratos técnicos fuera de su necesidad técnica. "
+                     "Las horas libres insuficientes para una atención completa se muestran como disponibles, sin sumarlas entre personas. "
+                     "Un técnico atiende su programa y puede apoyar transversal general; un transversal comparte las competencias "
                      "asignadas al mismo perfil docente entre programas. El centro definió un perfil transversal general para todos los temas "
                      "excepto bilingüismo y cultura física, que tienen perfiles exclusivos. Se reconocen por sus códigos de competencia "
                      "comunes a técnicos y tecnólogos, aunque los resultados se redacten diferente. Cultura física exige un instructor de educación física. "

@@ -48,6 +48,7 @@ def profile_peak_rows(staffing, rules):
                        "Fichas en máxima carga": load["Fichas activas"],
                        "Atenciones en máxima carga": load.get("Atenciones activas", load["Fichas activas"]),
                        "Capacidad planta (h/sem)": load["Capacidad planta (h/sem)"],
+                       "Apoyo técnico en máxima carga (h/sem)": load.get("Apoyo técnico (h/sem)", 0.0),
                        "Capacidad por contratista (h/sem)": rules["weekly_contractor_hours"]})
     return result
 

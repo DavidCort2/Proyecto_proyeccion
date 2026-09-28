@@ -124,7 +124,7 @@ def test_source_dates_and_manual_hours_never_affect_demand(tmp_path):
     _, after = plan(changed)
     for key in ("cohort_dates", "periods", "contracts", "monthly", "center", "summary"):
         assert before[key] == after[key]
-    assert after["center"]["demanda_total_horas_anuales"] == 22  # Dos semanas técnicas de 10 h y una transversal de 2 h.
+    assert after["center"]["demanda_total_horas_anuales"] == 25  # Dos semanas técnicas de 10 h y una transversal de 5 h.
 
 
 def test_broken_or_missing_dates_do_not_block_template(tmp_path):
@@ -166,7 +166,7 @@ def test_continuing_end_date_reconstructs_only_pending_phases(tmp_path):
     _, execution = plan(catalog, targets={"Técnico": 0, "Tecnólogo": 100}, cohorts=[
         {"Programa": "Software", "Fichas que pasan": 2, "Fecha fin lectiva": "2027-01-14"}])
     assert execution["center"]["fichas_nuevas"] == 2
-    assert execution["center"]["demanda_total_horas_anuales"] == 68  # 2 × 12 pendientes + 2 × 22 nuevas.
+    assert execution["center"]["demanda_total_horas_anuales"] == 80  # 2 × 15 pendientes + 2 × 25 nuevas.
     assert execution["cohort_dates"][0]["Fases al iniciar la vigencia"] == "Fase 2 · Planeación"
     assert execution["cohort_dates"][0]["Fecha fin lectiva"] == "2027-01-14"
     assert all(row["Mes"] == 1 for row in execution["monthly_fichas"])
@@ -175,7 +175,7 @@ def test_continuing_end_date_reconstructs_only_pending_phases(tmp_path):
 def test_variable_phase_lengths_and_end_of_contracts(tmp_path):
     _, catalog = configured_catalog(tmp_path, durations=(7, 14, 7))
     _, execution = plan(catalog, plant=[person(kind="Transversal", profile="240202501")])
-    assert execution["center"]["demanda_total_horas_anuales"] == 24
+    assert execution["center"]["demanda_total_horas_anuales"] == 30
     assert execution["summary"]["pico_contratistas_total"] == 1
     assert [(r["Inicio"], r["Fin"]) for r in execution["contracts"]] == [("2027-01-01", "2027-01-07"), ("2027-01-22", "2027-01-28")]
     assert execution["cohort_dates"][0]["Fecha fin lectiva"] == "2027-01-28"
@@ -188,7 +188,7 @@ def test_offers_are_automatic_and_rounded_once_from_remaining_meta(tmp_path):
     assert execution["virtual_inputs"]["offers"] == ["2027-01-01", "2027-04-01", "2027-07-01", "2027-10-01"]
     assert [row["Fecha inicio lectiva estimada"] for row in execution["cohort_dates"]] == execution["virtual_inputs"]["offers"]
     assert [execution["offers_by_program"][0][f"Oferta {i}"] for i in range(1, 5)] == [2, 1, 1, 1]
-    assert execution["center"]["demanda_total_horas_anuales"] == 110
+    assert execution["center"]["demanda_total_horas_anuales"] == 125
 
 
 @pytest.mark.parametrize("fichas,plants,required", [(4, 0, 1), (5, 0, 2), (3, 1, 0), (4, 1, 1), (6, 2, 0), (7, 2, 1)])
@@ -211,7 +211,7 @@ def test_transversal_capacity_shared_once_between_programs(tmp_path):
                             plant=[person(kind="Transversal", profile="240202501")])
     shared = next(row for row in execution["staffing"] if row["Tipo"] == "Transversal" and row["Inicio"] == "2027-01-08")
     assert len(staff) == 1
-    assert shared["Horas requeridas (h/sem)"] == 8
+    assert shared["Horas requeridas (h/sem)"] == 20
     assert shared["Capacidad planta (h/sem)"] == 32
     assert shared["Horas a contratar"] == 0
     assert shared["Contratistas requeridos"] == 0
@@ -238,7 +238,7 @@ def test_productive_stage_never_contributes_hours_or_dates(tmp_path, productive_
     _, catalog = configured_catalog(tmp_path, productive_days=180)
     catalog["schedules"][0]["activities"][-1].update(teaching_type="Transversal", instructor_hours=productive_hours)
     _, execution = plan(catalog)
-    assert execution["center"]["demanda_total_horas_anuales"] == 22
+    assert execution["center"]["demanda_total_horas_anuales"] == 25
     assert execution["cohort_dates"][0]["Fecha fin lectiva"] == "2027-01-21"
     assert all(row["Fase"] != "Etapa productiva" for row in execution["activity_hours"])
     assert all(row["Fin"] <= "2027-01-21" for row in execution["contracts"])
@@ -362,7 +362,7 @@ def test_decimal_months_do_not_add_a_day_or_overlap_phases(tmp_path):
     intervals = result["activity_hours"]
     assert intervals[1]["Fin"] == "2027-04-09"
     assert intervals[2]["Inicio"] == "2027-04-10"
-    assert result["center"]["demanda_total_horas_anuales"] == 36  # 17 días técnicos y una semana transversal.
+    assert result["center"]["demanda_total_horas_anuales"] == 39  # 17 días técnicos y una semana transversal.
 
 
 def test_two_active_transversals_each_add_one_profile_load(tmp_path):
@@ -376,7 +376,7 @@ def test_two_active_transversals_each_add_one_profile_load(tmp_path):
     assert execution["summary"]["pico_contratistas_total"] == 2
     assert execution["summary"]["tecnicos_en_pico"] == 1
     assert execution["summary"]["transversales_en_pico"] == 1
-    assert execution["center"]["demanda_total_horas_anuales"] == 56  # 4 fichas × (10 técnicas + 2 + 2 transversales).
+    assert execution["center"]["demanda_total_horas_anuales"] == 80  # 4 fichas × (10 técnicas + 5 + 5 transversales).
 
 
 def test_partial_year_and_reduced_later_demand(tmp_path):
