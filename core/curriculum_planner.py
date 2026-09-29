@@ -126,6 +126,9 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
     instructors = shared_plant(instructors, imported.get("program_transitions", []))
     # Este recorrido no llama al planificador histórico ni a sus reglas de crecimiento.
     execution = initialize_curricular_plan(instructors, manual, imported, targets, rules, year, source_name, source_digest)
+    if imported.get("input_mode") != "virtual_manual":
+        from core.presencial_offers import rebalance_presencial_offers
+        execution = rebalance_presencial_offers(execution, imported, rules)
     execution = apply_calendar(execution, instructors, pd.DataFrame(execution["distribution"]), endings, rules,
                                ficha_import=imported, curriculum_catalog=catalog)
     execution["staffing_basis"] = "plant_only_curricula_v1"
@@ -162,6 +165,11 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
     )
     if execution.get("program_transitions"):
         execution["calculation_basis"] += " " + execution["program_transition_basis"]
+    if "presencial_offer_schedule" in execution:
+        execution["calculation_basis"] = execution["intake_basis"] + (
+            " Las horas y contratistas se calculan desde las mallas según la edad de cada ficha y su oferta, "
+            "descontando la capacidad de planta por perfil y período."
+        )
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods
     return apply_contracting_periods(apply_monthly_plan(execution, instructors, rules), rules)

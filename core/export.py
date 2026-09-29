@@ -43,6 +43,8 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
             pd.DataFrame(execution["offers_by_program"]).to_excel(writer, sheet_name="Fichas por oferta", index=False)
             pd.DataFrame(execution["offers_by_profile"]).to_excel(writer, sheet_name="Ofertas por jornada", index=False)
             pd.DataFrame([{"Criterio de ofertas": execution["offer_basis"]}]).to_excel(writer, sheet_name="Criterio de ofertas", index=False)
+        if "intake_decisions" in execution:
+            pd.DataFrame(execution["intake_decisions"]).to_excel(writer, sheet_name="Reemplazos y popularidad", index=False)
         if execution.get("target_basis"):
             pd.DataFrame(execution["intake_allocation"]).to_excel(writer, sheet_name="Asignacion de fichas nuevas", index=False)
             pd.DataFrame([{"Criterio de meta y oferta": execution["intake_basis"]}]).to_excel(writer, sheet_name="Criterio de la meta", index=False)

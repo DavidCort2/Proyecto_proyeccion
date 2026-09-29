@@ -105,7 +105,7 @@ def test_shared_plant_is_counted_once_and_covers_both_versions(transition_catalo
     verify(plan)
 
 
-def test_popularity_changes_only_offer_order_and_family_is_apportioned_once(tmp_path, transition_catalog, monkeypatch):
+def test_popular_programs_share_early_offers_and_each_family_is_counted_once(tmp_path, transition_catalog, monkeypatch):
     path, _ = transition_catalog
     catalog = import_curricula(path, [("Otro programa - DIURNA.xlsx", malla([10, 10, 10, 10]))])
     frame = pd.concat([fichas_frame(), pd.DataFrame([
@@ -115,8 +115,8 @@ def test_popularity_changes_only_offer_order_and_family_is_apportioned_once(tmp_
     rules = PlanningRules(intake_weights=(50, 0, 0, 50))
     _, popular = execute(catalog, frame=frame, target=300, rules=rules)
     offers = {row["Programa"]: row for row in popular["offers_by_program"]}
-    assert [offers[NEW][f"Oferta T{q}"] for q in range(1, 5)] == [0, 0, 0, 3]
-    assert [offers["Otro programa"][f"Oferta T{q}"] for q in range(1, 5)] == [3, 0, 0, 0]
+    assert [offers[NEW][f"Oferta T{q}"] for q in range(1, 5)] == [2, 0, 0, 1]
+    assert [offers["Otro programa"][f"Oferta T{q}"] for q in range(1, 5)] == [1, 0, 0, 2]
     assert offers[NEW]["Fichas del reporte"] == offers["Otro programa"]["Fichas del reporte"] == 3
     normal = [{**row, "popular": False} for row in load_presencial_transitions()]
     monkeypatch.setattr("core.program_transitions.load_presencial_transitions", lambda: normal)

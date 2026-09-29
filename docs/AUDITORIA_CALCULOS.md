@@ -11,8 +11,8 @@ El flujo que ejecuta `app.main` no contiene una tabla «meta → número de inst
 | Duración y horas por competencia/trimestre | Malla del programa y jornada. No se rellenan con duraciones ni horas nominales. |
 | Clasificación técnica/transversal | Clasificación del catálogo, propuesta desde las mallas y editable por el usuario. |
 | Aprendices por ficha | Parámetro visible. El reporte no contiene matrícula individual; las continuaciones se estiman con este tamaño. |
-| Distribución de nuevas fichas entre programas | Participación observada en el reporte, redondeada conservando el total; sin mínimos por programa. |
-| Trimestres de ingreso | Porcentajes de oferta configurados; no se fuerza un pico en T1. |
+| Distribución presencial de nuevas fichas | Programas pequeños: solo reemplazos de continuaciones que terminan en la vigencia. Saldo: mayor presencia de cada nivel y programas declarados populares, según su participación combinada en el reporte. |
+| Trimestres de ingreso | Porcentajes de oferta configurados, con prioridad para no anticipar los reemplazos de programas pequeños; no se fuerza un pico en T1. |
 | Planta disponible | Registros del Excel marcados como planta y su perfil. Los contratistas actuales no fijan ni reducen la contratación proyectada. |
 | Capacidad semanal por instructor | Parámetros visibles de planta y contratista; las horas programadas históricas no son la capacidad disponible. |
 | Semanas efectivas | Parámetro visible, distribuido entre los tres meses de cada trimestre. No se inventan horarios diarios. |
@@ -29,6 +29,8 @@ Pico anual = máximo de los totales de los períodos
 ```
 
 La capacidad y la demanda se comparan en la misma unidad: semanal, mensual o trimestral. La capacidad de una persona se comparte entre sus fichas y se cuenta una sola vez. No se presupone que la capacidad libre de otro perfil pueda cubrir un perfil distinto. El redondeo a personas y fichas completas explica saltos discretos; no implica cuotas prefijadas para ciertas metas.
+
+El ajuste de reparto sobre 1.9.1 conserva esta fórmula por nivel y el mismo tamaño de ficha para continuaciones y nuevas. Los reemplazos de programas pequeños consumen el saldo, no lo incrementan. Se proyectan después del trimestre de terminación de la malla; las salidas de T4 quedan para el año siguiente. Las fichas terminadas antes de la vigencia no se reabren automáticamente. Se comprueba que la cantidad simultánea de los programas clasificados «Solo reemplazos» nunca aumente respecto a sus continuaciones de inicio de año. La política se invoca únicamente desde el recorrido presencial.
 
 ## Controles añadidos
 

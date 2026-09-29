@@ -123,14 +123,24 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     transitions = execution.get("program_transitions", [])
     # La presencia de mallas obliga al calendario curricular, incluso si falta
     # una etiqueta de una ejecución anterior; nunca activa reposiciones extra.
-    schedule = (curricular_offer_schedule(distribution, rules, execution.get("intake_allocation", []), transitions)
-                if curriculum_catalog is not None or execution.get("target_basis") else None)
+    if "presencial_offer_schedule" in execution:
+        schedule = {index: execution["presencial_offer_schedule"][position]
+                    for position, index in enumerate(distribution.index)}
+    else:
+        schedule = (curricular_offer_schedule(distribution, rules, execution.get("intake_allocation", []), transitions)
+                    if curriculum_catalog is not None or execution.get("target_basis") else None)
     calendar = calendar_rows(distribution, endings, rules, duration_lookup(curriculum_catalog) if curriculum_catalog is not None else None, schedule)
     if schedule is not None:
         execution["offers_by_program"], execution["offers_by_profile"] = curricular_offer_tables(calendar, execution["intake_allocation"], transitions)
         execution["offer_basis"] = OFFER_BASIS
         if transitions:
             execution["offer_basis"] += " " + execution["program_transition_basis"]
+        if "presencial_offer_schedule" in execution:
+            execution["offer_basis"] = execution["intake_basis"]
+            criteria = {(row["Programa"], row["Nivel"]): row["Criterio"] for row in execution["intake_decisions"]}
+            for field in ("offers_by_program", "offers_by_profile"):
+                for row in execution[field]:
+                    row["Criterio de oferta"] = criteria[row["Programa"], row["Nivel"]]
     if curriculum_catalog is not None:
         from core.curriculum_planner import apply_curriculum_hours
         if modules is not None:

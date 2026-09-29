@@ -116,23 +116,23 @@ def two_program_plan(tmp_path):
 def test_offers_drive_training_ages_monthly_hours_and_contract_end_dates(two_program_plan):
     _, plan = two_program_plan
     programs = {row["Programa"]: row for row in plan["offers_by_program"]}
-    assert [programs["Menor"][column] for column in OFFER_COLUMNS] == [1, 0, 0, 0]
-    assert [programs["Popular"][column] for column in OFFER_COLUMNS] == [1, 0, 0, 2]
+    assert [programs["Menor"][column] for column in OFFER_COLUMNS] == [0, 1, 0, 0]
+    assert [programs["Popular"][column] for column in OFFER_COLUMNS] == [2, 0, 0, 1]
     assert programs["Popular"]["Fichas del reporte"] == 3
     assert sum(row["Total anual"] for row in programs.values()) == 4
-    # T1: continuación Menor 20 + Popular 3*15; nuevas 10+5 = 80 h/sem.
-    # T2: Popular 3*25 + nuevas 20+15 = 110; T3: 3*35+25 = 130.
-    # T4: Popular de T1 cursa edad 4 (35) y dos nuevas cursan edad 1 (2*5).
-    assert [row["Horas requeridas"] for row in plan["quarterly"]] == [960, 1320, 1560, 540]
-    assert [row["Horas requeridas"] for row in plan["monthly"]] == [320] * 3 + [440] * 3 + [520] * 3 + [180] * 3
+    # Menor termina en T1: su reemplazo cursa 10 h en T2 y 20 h en T3.
+    # Popular: tres continuaciones [45,75,105,0], dos nuevas T1 [10,30,50,70]
+    # y una nueva T4 [0,0,0,5]. Menor aporta [20,10,20,0].
+    assert [row["Horas requeridas"] for row in plan["quarterly"]] == [900, 1380, 2100, 900]
+    assert [row["Horas requeridas"] for row in plan["monthly"]] == [300] * 3 + [460] * 3 + [700] * 3 + [300] * 3
     # Planta de Popular cubre 32 h/sem; los contratistas se comparten entre fichas.
-    assert [row["contratistas_totales"] for row in plan["quarterly"]] == [2, 3, 3, 1]
+    assert [row["contratistas_totales"] for row in plan["quarterly"]] == [2, 3, 5, 2]
     late = [row for row in plan["monthly_fichas"] if row["Cohorte"] == "Oferta T4"]
     assert {row["Trimestre de formación"] for row in late} == {1}
     assert {row["Mes número"] for row in late} == {10, 11, 12}
     assert {row["Fecha fin estimada"] for row in late} == {"2028-09-30"}
-    assert len({row["Ficha"] for row in late}) == 2
-    assert {(row["Desde T"], row["Hasta T"]) for row in plan["contract_windows"] if row["Perfil"] == "Menor"} == {(1, 2)}
+    assert len({row["Ficha"] for row in late}) == 1
+    assert {(row["Desde T"], row["Hasta T"]) for row in plan["contract_windows"] if row["Perfil"] == "Menor"} == {(1, 3)}
     verify(plan)
 
 

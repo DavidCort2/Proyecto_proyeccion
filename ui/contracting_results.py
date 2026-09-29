@@ -24,6 +24,19 @@ def render_contracting_summary(execution):
         else:
             st.info("La planta cubre todas las horas de la vigencia; no se requieren contratistas.")
         st.caption("Las horas se toman de las competencias de la malla que cursa cada ficha en cada trimestre. Se descuenta únicamente la cobertura de planta.")
+    if "intake_decisions" in execution:
+        levels = pd.DataFrame(execution["levels"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Aprendices de fichas que pasan", int(levels["Aprendices que pasan (estimados)"].sum()))
+        c2.metric("Aprendices por matricular", int(levels["Aprendices pendientes de ingresar"].sum()))
+        c3.metric("Fichas nuevas tras descontar continuaciones", execution["center"]["fichas_nuevas"])
+        st.caption(f"Las fichas que pasan aportan {execution['rules']['learners_per_ficha']} aprendices cada una, "
+                   "igual que las nuevas. Se descuentan de la meta de su nivel una sola vez, aunque terminen durante el año. "
+                   "Los reemplazos están incluidos dentro de las nuevas.")
+        with st.expander("Descuento de las fichas que pasan en la meta"):
+            st.dataframe(levels[["Nivel", "Meta de aprendices", "Fichas que pasan", "Aprendices que pasan (estimados)",
+                                 "Aprendices pendientes de ingresar", "Fichas nuevas"]],
+                         hide_index=True, use_container_width=True)
 
 
 def render_contracting_details(execution):
@@ -121,6 +134,12 @@ def render_intake_offers(execution):
         st.write("**Detalle por jornada**")
         st.dataframe(pd.DataFrame(execution["offers_by_profile"]), hide_index=True, use_container_width=True)
         st.caption("Son cantidades de fichas nuevas por abrir; sus números oficiales se asignan al matricularlas. Las fichas que pasan se muestran en los otros detalles.")
+        if "intake_decisions" in execution:
+            st.write("**Reemplazos y prioridad de los programas**")
+            st.dataframe(pd.DataFrame(execution["intake_decisions"]), hide_index=True, use_container_width=True)
+            st.caption("Solo reemplazos: cada ingreso corresponde a una ficha que pasa y termina antes de T4. "
+                       "Las salidas de T4 se reponen el año siguiente. No se reabren vacantes de años anteriores. "
+                       "Los demás ingresos se asignan a los programas identificados como populares.")
 
 
 def render_contracting(execution):

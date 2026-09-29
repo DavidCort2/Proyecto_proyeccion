@@ -13,8 +13,9 @@ TRANSITION_BASIS = (
     "Su participación en el reporte se suma a la del programa vigente para calcular las nuevas, sin duplicar fichas. "
     "Los ingresos se asignan al programa vigente entre sus jornadas con malla disponible, según la participación "
     "de esas jornadas en el reporte combinado. Los dos nombres comparten una sola capacidad de planta y un solo "
-    "perfil de contratación. La popularidad indicada expresamente tiene prioridad para las ofertas posteriores; "
-    "solo cambia el orden de ingreso, no la cantidad anual asignada ni las horas de la malla."
+    "perfil de contratación. La popularidad indicada expresamente habilita al programa vigente para recibir "
+    "el saldo de nuevos ingresos después de reservar los reemplazos de programas de menor presencia. "
+    "Las horas de cada ficha siguen su malla original."
 )
 
 

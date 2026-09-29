@@ -28,6 +28,22 @@ def verify(plan):
             pending = max(0, level["Meta de aprendices"] - level["Fichas que pasan"] * plan["rules"]["learners_per_ficha"])
             assert level["Fichas nuevas"] == math.ceil(pending / plan["rules"]["learners_per_ficha"])
         assert plan["center"]["nuevas_adicionales_por_rotacion"] == 0
+    if "intake_decisions" in plan:
+        from core.program_transitions import active_program, program_key
+        transitions = plan.get("program_transitions", [])
+        for decision in plan["intake_decisions"]:
+            if decision["Criterio"] != "Solo reemplazos":
+                continue
+            key = program_key(decision["Programa"])
+            calendar = [row for row in plan["calendar"] if row["Nivel"] == decision["Nivel"]
+                        and program_key(active_program(row["Especialidad"], transitions)) == key]
+            source = [row for row in plan["ficha_import"]["detail"] if row["Nivel"] == decision["Nivel"]
+                      and program_key(active_program(row["Especialidad"], transitions)) == key
+                      and row["Pasa a la vigencia"] and row["Termina en la vigencia"]]
+            for q in range(1, 5):
+                assert sum(row["Fichas activas"] for row in calendar if row["Trimestre"] == q) <= decision["Fichas que pasan"]
+                assigned = sum(row["Fichas nuevas"] for row in calendar if row["Trimestre"] <= q)
+                assert assigned <= sum(int(row["Trimestre fin estimado"]) < q for row in source)
     if "offers_by_program" in plan:
         assert sum(row["Total anual"] for row in plan["offers_by_program"]) == plan["center"]["fichas_nuevas"]
         for table in (plan["offers_by_program"], plan["offers_by_profile"]):

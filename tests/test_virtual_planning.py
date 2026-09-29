@@ -82,6 +82,15 @@ def test_virtual_and_presencial_use_the_same_calculation(tmp_path, virtual_catal
         assert virtual[field] == presencial[field], field
 
 
+def test_virtual_never_calls_the_presencial_replacement_policy(virtual_catalog, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Virtual invocó el reparto exclusivo de presencial")
+    monkeypatch.setattr("core.presencial_offers.rebalance_presencial_offers", forbidden)
+    _, plan = virtual_run(virtual_catalog)
+    assert "intake_decisions" not in plan
+    assert "presencial_offer_schedule" not in plan
+
+
 def test_different_cohort_ages_and_last_quarter_are_preserved(virtual_catalog):
     _, plan = virtual_run(virtual_catalog, target=50, cohorts=[
         {"Programa": "Software", "Fichas que pasan": 1, "Trimestre al iniciar la vigencia": 1},
