@@ -226,6 +226,10 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
         accounted = level["Fichas nuevas"] + (level["Fichas que pasan"] if execution.get("target_basis") else 0)
         level["Fichas sobre la meta"] = max(0, accounted - level["Fichas según meta"])
         level["Cupos proyectados"] = accounted * rules.learners_per_ficha
+        if execution.get("manual_offers"):
+            level["Cupos nuevos"] = level["Fichas nuevas"] * rules.learners_per_ficha
+            level["Aprendices sin cobertura"] = max(0, level["Meta de aprendices"] - level["Cupos proyectados"])
+            level["Aprendices sobre la meta"] = max(0, level["Cupos proyectados"] - level["Meta de aprendices"])
         level["Horas anuales requeridas"] = float(group["Horas totales del trimestre"].sum())
         level["Horas anuales nuevas"] = float(group["Horas nuevas del trimestre"].sum())
     center["fichas_nuevas"] = int(distribution["Fichas nuevas"].sum())
@@ -236,6 +240,9 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
         center["cupos_nuevos"] = center["fichas_nuevas"] * rules.learners_per_ficha
         center["aprendices_que_pasan_estimados"] = center["fichas_que_pasan"] * rules.learners_per_ficha
     center["holgura_cupos"] = center["cupos_teoricos"] - center["meta_aprendices"]
+    if execution.get("manual_offers"):
+        center["aprendices_sin_cobertura"] = sum(level["Aprendices sin cobertura"] for level in execution["levels"])
+        center["aprendices_sobre_meta"] = sum(level["Aprendices sobre la meta"] for level in execution["levels"])
     execution.update(distribution=records(distribution), distribution_basis="quarterly_v1", hours=hours,
                      calendar=records(calendar), quarterly=quarterly, quarter_endings=records(endings),
                      technical_quarterly=technical_rows, transversal_quarterly=transversal_rows,

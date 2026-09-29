@@ -107,6 +107,26 @@ def save_presencial(app):
     assert not app.error
 
 
+def test_presencial_offer_edits_leave_virtual_untouched_and_survive_navigation(module_args):
+    app = ready_virtual(open_app(module_args))
+    button(app, "Ejecutar y guardar planeación").click().run()
+    virtual_path = planning_database(Path(module_args[0]), "Virtual")
+    original_virtual = load_planning(virtual_path)
+    save_presencial(app)
+    edit(app, "presencial_offers_editor_", rows={0: {"Oferta T1": 0, "Oferta T2": 0, "Oferta T3": 0, "Oferta T4": 5}})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    assert load_planning(module_args[0])[1]["center"]["fichas_nuevas"] == 5
+    assert load_planning(virtual_path)[1] == original_virtual[1]
+    app.radio(key="nav_modality").set_value("Virtual").run()
+    assert not app.exception and not app.error
+    assert not any(node.key and node.key.startswith("presencial_offers_editor_") for node in app.dataframe)
+    app.radio(key="nav_modality").set_value("Presencial").run()
+    assert not app.exception and not app.error
+    assert editor(app, "presencial_offers_editor_").value.iloc[0]["Oferta T4"] == 5
+    assert not any("pendientes de ejecutar" in item.value for item in app.warning)
+
+
 def test_navigation_independent_parameters_and_empty_complementaria(module_args):
     app = open_app(module_args)
     assert app.radio(key="nav_modality").value == "Presencial"

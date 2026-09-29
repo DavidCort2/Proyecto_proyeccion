@@ -19,7 +19,7 @@ def editor_events(monkeypatch):
     original = element_tree.get_widget_state
 
     def state(node):
-        if isinstance(node, element_tree.Dataframe) and node.key and node.key.startswith("competencies_editor_"):
+        if isinstance(node, element_tree.Dataframe) and node.key:
             return WidgetState(id=node.proto.id, string_value=json.dumps(node.root.session_state[node.key]))
         return original(node)
 
@@ -100,7 +100,7 @@ def test_automatic_flow_import_execute_export_and_reopen(app_args):
     assert not button(app, "Ejecutar y guardar planeación").disabled
     assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "3360"
     editors = [node.key for node in app.dataframe if node.key]
-    assert all(key.startswith("competencies_editor_") for key in editors)
+    assert all(key.startswith(("competencies_editor_", "presencial_offers_editor_")) for key in editors)
     assert len(load_curricula(app_args[0])["curricula"]) == 2
     assert load_planning(app_args[0]) is None
     button(app, "Ejecutar y guardar planeación").click().run()
@@ -302,3 +302,88 @@ def test_format_failure_is_visible_without_resetting_inputs(app_args, monkeypatc
     assert load_planning(app_args[0])[1] == saved
     assert len(load_curricula(app_args[0])["curricula"]) == 2
     assert database_reset_version(app_args[0]) == revision
+
+
+def edit_offers(app, values):
+    node = next(item for item in app.dataframe if item.key and item.key.startswith("presencial_offers_editor_"))
+    app.session_state[node.key] = {"edited_rows": {0: values}, "added_rows": [], "deleted_rows": []}
+    return node
+
+
+def test_offer_editor_saves_recalculates_reopens_and_restores(app_args):
+    app = open_ready_app(app_args)
+    button(app, "Ejecutar y guardar planeación").click().run()
+    before = load_planning(app_args[0])[1]
+    edit_offers(app, {"Oferta T1": 0, "Oferta T4": 6})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    after = load_planning(app_args[0])[1]
+    assert after["center"]["fichas_nuevas"] == 6
+    assert after["offers_by_program"][0]["Total anual"] == 6
+    assert after["center"]["demanda_total_horas_anuales"] == 2688
+    assert after["contract_windows"] != before["contract_windows"]
+    assert next(item.value for item in app.metric if item.label == "Total de horas al año") == "2688"
+    assert any("100 cupos por encima" in item.value for item in app.info)
+    assert any("Ofertas guardadas" in item.value for item in app.success)
+    assert not any("pendientes de ejecutar" in item.value for item in app.warning)
+    reopened = AppTest.from_function(automatic_app_for_test, args=app_args, default_timeout=30).run()
+    assert not reopened.exception and not reopened.error
+    assert next(item.value for item in reopened.metric if item.label == "Fichas nuevas proyectadas") == "6"
+    assert not any("pendientes de ejecutar" in item.value for item in reopened.warning)
+    # Ordinary recalculation must keep manual offers when changing instructor capacity.
+    reopened.number_input(key="weekly_plant_direct_hours").set_value(24.0).run()
+    button(reopened, "Ejecutar y guardar planeación").click().run()
+    changed_capacity = load_planning(app_args[0])[1]
+    assert changed_capacity["manual_offers"] == after["manual_offers"]
+    assert changed_capacity["monthly_staffing"] != after["monthly_staffing"]
+    button(reopened, "Restaurar distribución automática").click().run()
+    assert not reopened.exception and not reopened.error
+    restored = load_planning(app_args[0])[1]
+    assert "manual_offers" not in restored
+    assert restored["offers_by_program"] == before["offers_by_program"]
+    assert restored["center"]["demanda_total_horas_anuales"] == before["center"]["demanda_total_horas_anuales"]
+
+
+def test_manual_offer_shortfall_invalid_input_and_failed_save_preserve_result(app_args, monkeypatch):
+    app = open_ready_app(app_args)
+    edit_offers(app, {"Oferta T1": 0})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    saved = load_planning(app_args[0])[1]
+    assert saved["center"]["fichas_nuevas"] == 0
+    assert saved["center"]["demanda_total_horas_anuales"] == 672
+    assert any("50 aprendices sin cobertura" in item.value for item in app.warning)
+    edit_offers(app, {"Oferta T1": -1})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception
+    assert any("entera no negativa" in item.value for item in app.error)
+    assert load_planning(app_args[0])[1] == saved
+
+    def fail_save(*args):
+        raise sqlite3.OperationalError("Base de datos ocupada")
+
+    monkeypatch.setattr("ui.automatic_planning.save_planning", fail_save)
+    edit_offers(app, {"Oferta T1": 4})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception
+    assert any("Base de datos ocupada" in item.value for item in app.error)
+    assert load_planning(app_args[0])[1] == saved
+    assert next(item.value for item in app.metric if item.label == "Fichas nuevas proyectadas") == "0"
+
+
+def test_offer_edits_apply_only_when_submitted_and_do_not_carry_to_another_year(app_args):
+    app = open_ready_app(app_args)
+    button(app, "Ejecutar y guardar planeación").click().run()
+    original = load_planning(app_args[0])[1]
+    edit_offers(app, {"Oferta T1": 1})
+    app.run()
+    assert load_planning(app_args[0])[1] == original
+    assert next(item.value for item in app.metric if item.label == "Fichas nuevas proyectadas") == "2"
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert load_planning(app_args[0])[1]["center"]["fichas_nuevas"] == 1
+    app.number_input(key="planning_year").set_value(2028).run()
+    assert not app.exception and not app.error
+    assert any("otra vigencia" in item.value for item in app.info)
+    assert next(item.value for item in app.metric if item.label == "Fichas nuevas proyectadas") == "4"
+    button(app, "Ejecutar y guardar planeación").click().run()
+    assert "manual_offers" not in load_planning(app_args[0])[1]

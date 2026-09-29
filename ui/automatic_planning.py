@@ -21,6 +21,7 @@ from ui.system_reset import render_system_reset
 from ui.planning_session import clear_module_session, module_file_uploader, scoped_key, widget_key
 from core.virtual_planning import execute_virtual_plan
 from ui.virtual_input import virtual_inputs
+from ui.presencial_offer_editor import render_offer_editor, render_restore_offers
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -132,6 +133,8 @@ def render_automatic_planning(path, *, modality="Presencial", standalone=True):
         return
     previous = saved[1] if saved else {}
     preview, problem = None, None
+    recalculate = None
+    manual_offers = previous.get("manual_offers")
     with settings_tab:
         instructors, fichas = None, None
         if not virtual:
@@ -170,14 +173,30 @@ def render_automatic_planning(path, *, modality="Presencial", standalone=True):
                     st.dataframe(coverage, hide_index=True, use_container_width=True)
                     st.dataframe(pd.DataFrame(imported["detail"]), hide_index=True, use_container_width=True)
                 if catalog_ready:
-                    preview = execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
-                    preview.update(training_type="Titulada", modality="Presencial")
+                    def recalculate(offers):
+                        result = execute_curriculum_plan(instructors, imported, catalog, rules, targets, year,
+                                                         source_name, source_digest, manual_offers=offers)
+                        result.update(training_type="Titulada", modality="Presencial")
+                        return result
+
+                    active_offers = manual_offers if manual_offers and manual_offers["planning_year"] == year else None
+                    preview = recalculate(active_offers)
             except ValueError as exc:
                 problem = str(exc)
 
         render_system_reset(path)
 
     with planning_tab:
+        message = st.session_state.pop(scoped_key("presencial_offers_saved"), None)
+        if message:
+            st.success(message)
+        if manual_offers and manual_offers["planning_year"] != year:
+            st.info("Las ofertas editadas corresponden a otra vigencia. Para esta vigencia se muestra el reparto automático.")
+
+        def save_offers(offers):
+            result = recalculate(offers)
+            save_planning(path, instructors, result)
+
         if preview is not None:
             render_contracting_summary(preview)
         else:
@@ -193,6 +212,8 @@ def render_automatic_planning(path, *, modality="Presencial", standalone=True):
             if rules.validate_curricular():
                 section = "Datos manuales y parámetros" if virtual else "Reportes y parámetros"
                 st.warning(f"Revise los parámetros de cálculo en «{section}»: " + " ".join(rules.validate_curricular()))
+            if manual_offers and recalculate is not None:
+                render_restore_offers(save_offers)
 
         current = {k: v for k, v in previous.items() if k != "saved_at"}
         if current and not virtual:
@@ -232,7 +253,8 @@ def render_automatic_planning(path, *, modality="Presencial", standalone=True):
             c3.metric("Fichas que pasan", center["fichas_que_pasan"])
             st.subheader("Detalle de la planeación")
             render_contracting_details(preview)
-            render_planning_details(preview, instructors)
+            render_planning_details(preview, instructors,
+                                    offer_editor=lambda plan: render_offer_editor(plan, save_offers))
         if saved and pending:
             with st.expander("Descargar la ejecución anterior"):
                 st.caption(f"Vigencia {saved[1]['planning_year']} · Guardada (UTC): {saved[1]['saved_at']}.")

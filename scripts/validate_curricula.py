@@ -26,7 +26,13 @@ def verify(plan):
     if plan.get("target_basis"):
         for level in plan["levels"]:
             pending = max(0, level["Meta de aprendices"] - level["Fichas que pasan"] * plan["rules"]["learners_per_ficha"])
-            assert level["Fichas nuevas"] == math.ceil(pending / plan["rules"]["learners_per_ficha"])
+            if plan.get("manual_offers"):
+                assert level["Fichas nuevas"] == sum(row[f"Oferta T{q}"] for row in plan["manual_offers"]["programs"]
+                    if row["Nivel"] == level["Nivel"] for q in range(1, 5))
+                assert level["Cupos nuevos"] == level["Fichas nuevas"] * plan["rules"]["learners_per_ficha"]
+                assert level["Aprendices sin cobertura"] == max(0, level["Meta de aprendices"] - level["Cupos proyectados"])
+            else:
+                assert level["Fichas nuevas"] == math.ceil(pending / plan["rules"]["learners_per_ficha"])
         assert plan["center"]["nuevas_adicionales_por_rotacion"] == 0
     if "intake_decisions" in plan:
         from core.program_transitions import active_program, program_key
@@ -95,7 +101,8 @@ def main():
         parser.error("Se necesita una ejecución con los dos reportes guardados.")
     instructors, prior = saved
     plan = execute_curriculum_plan(instructors, prior["ficha_import"], catalog, PlanningRules(**prior["rules"]),
-                                   prior["targets_by_level"], prior["planning_year"], prior["source_name"], prior["source_digest"])
+                                   prior["targets_by_level"], prior["planning_year"], prior["source_name"], prior["source_digest"],
+                                   manual_offers=prior.get("manual_offers"))
     verify(plan)
     plan["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     output = Path(args.output)

@@ -29,14 +29,25 @@ def render_contracting_summary(execution):
         c1, c2, c3 = st.columns(3)
         c1.metric("Aprendices de fichas que pasan", int(levels["Aprendices que pasan (estimados)"].sum()))
         c2.metric("Aprendices por matricular", int(levels["Aprendices pendientes de ingresar"].sum()))
-        c3.metric("Fichas nuevas tras descontar continuaciones", execution["center"]["fichas_nuevas"])
+        c3.metric("Fichas nuevas programadas" if execution.get("manual_offers") else "Fichas nuevas tras descontar continuaciones",
+                  execution["center"]["fichas_nuevas"])
         st.caption(f"Las fichas que pasan aportan {execution['rules']['learners_per_ficha']} aprendices cada una, "
                    "igual que las nuevas. Se descuentan de la meta de su nivel una sola vez, aunque terminen durante el año. "
                    "Los reemplazos están incluidos dentro de las nuevas.")
         with st.expander("Descuento de las fichas que pasan en la meta"):
-            st.dataframe(levels[["Nivel", "Meta de aprendices", "Fichas que pasan", "Aprendices que pasan (estimados)",
-                                 "Aprendices pendientes de ingresar", "Fichas nuevas"]],
+            columns = ["Nivel", "Meta de aprendices", "Fichas que pasan", "Aprendices que pasan (estimados)",
+                       "Aprendices pendientes de ingresar", "Fichas nuevas"]
+            if execution.get("manual_offers"):
+                columns += ["Cupos proyectados", "Aprendices sin cobertura", "Aprendices sobre la meta"]
+            st.dataframe(levels[columns],
                          hide_index=True, use_container_width=True)
+        if execution.get("manual_offers"):
+            center = execution["center"]
+            st.caption("Se aplican las cantidades guardadas en la tabla de ofertas. La meta permanece como referencia para comparar los cupos programados.")
+            if center["aprendices_sin_cobertura"]:
+                st.warning(f"Las ofertas editadas dejan {center['aprendices_sin_cobertura']} aprendices sin cobertura de la meta. Consulte el desglose por nivel.")
+            if center["aprendices_sobre_meta"]:
+                st.info(f"Hay {center['aprendices_sobre_meta']} cupos por encima de la meta en los niveles con excedente. Consulte el desglose por nivel.")
 
 
 def render_contracting_details(execution):
@@ -68,8 +79,8 @@ def render_contracting_details(execution):
         st.dataframe(pd.DataFrame(execution["contracting_profile_quarterly"]), hide_index=True, use_container_width=True)
 
 
-def render_planning_details(execution, instructors):
-    render_intake_offers(execution)
+def render_planning_details(execution, instructors, *, offer_editor=None):
+    render_intake_offers(execution, editor=offer_editor)
     if execution.get("program_transitions"):
         with st.expander("Programas actualizados y planta compartida"):
             st.caption(execution["program_transition_basis"])
@@ -95,7 +106,7 @@ def render_planning_details(execution, instructors):
         st.dataframe(pd.DataFrame(execution["levels"]), hide_index=True, use_container_width=True)
         st.dataframe(pd.DataFrame(execution["calendar"]), hide_index=True, use_container_width=True)
         center = execution["center"]
-        if center["fichas_adicionales_sobre_meta"]:
+        if center["fichas_adicionales_sobre_meta"] and not execution.get("manual_offers"):
             st.info(f"Las fichas que ya pasan superan la meta en {center['fichas_adicionales_sobre_meta']} fichas; sus horas pendientes se mantienen para completar su formación.")
         st.dataframe(pd.DataFrame(execution.get("intake_allocation", execution.get("growth_rule", {}).get("rows", []))), hide_index=True, use_container_width=True)
     with st.expander("Comprobar horas por competencia, trimestre y resultado"):
@@ -120,7 +131,7 @@ def render_planning_details(execution, instructors):
                  "redondeado hacia arriba por perfil y trimestre.")
 
 
-def render_intake_offers(execution):
+def render_intake_offers(execution, *, editor=None):
     if "offers_by_program" not in execution:
         return
     with st.expander("Fichas nuevas por programa y oferta"):
@@ -128,7 +139,10 @@ def render_intake_offers(execution):
         programs = pd.DataFrame(execution["offers_by_program"])
         st.write("**Ingresos proyectados por programa**")
         st.caption("T1: enero–marzo · T2: abril–junio · T3: julio–septiembre · T4: octubre–diciembre. Las fichas ingresan al inicio de cada oferta.")
-        st.dataframe(programs, hide_index=True, use_container_width=True)
+        if editor is None:
+            st.dataframe(programs, hide_index=True, use_container_width=True)
+        else:
+            editor(execution)
         st.dataframe(pd.DataFrame([{"Programa": "TOTAL", **programs[[*OFFER_COLUMNS, "Total anual"]].sum().to_dict()}]),
                      hide_index=True, use_container_width=True)
         st.write("**Detalle por jornada**")
@@ -137,7 +151,9 @@ def render_intake_offers(execution):
         if "intake_decisions" in execution:
             st.write("**Reemplazos y prioridad de los programas**")
             st.dataframe(pd.DataFrame(execution["intake_decisions"]), hide_index=True, use_container_width=True)
-            st.caption("Solo reemplazos: cada ingreso corresponde a una ficha que pasa y termina antes de T4. "
+            st.caption("Las cantidades manuales tienen prioridad. El criterio automático se conserva como referencia; los reemplazos contabilizados corresponden a ingresos posteriores a la terminación de las fichas que pasan."
+                       if execution.get("manual_offers") else
+                       "Solo reemplazos: cada ingreso corresponde a una ficha que pasa y termina antes de T4. "
                        "Las salidas de T4 se reponen el año siguiente. No se reabren vacantes de años anteriores. "
                        "Los demás ingresos se asignan a los programas identificados como populares.")
 

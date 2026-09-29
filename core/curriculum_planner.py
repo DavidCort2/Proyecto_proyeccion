@@ -102,7 +102,7 @@ def apply_curriculum_hours(calendar, catalog, imported, year, rules):
     return result, audit
 
 
-def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest):
+def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest, *, manual_offers=None):
     errors = rules.validate_curricular()
     if errors:
         raise ValueError(" ".join(errors))
@@ -112,10 +112,11 @@ def execute_curriculum_plan(instructors, imported, catalog, rules, targets, year
     imported = prepare_ficha_import(pd.DataFrame(imported["rows"]), instructors, catalog, year,
                                     imported["source_name"], imported["source_digest"],
                                     imported["report_year"], imported["report_quarter"])
-    return execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest)
+    return execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest,
+                                           manual_offers=manual_offers)
 
 
-def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest):
+def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targets, year, source_name, source_digest, *, manual_offers=None):
     """Motor compartido tras validar el origen presencial o la entrada virtual."""
     from core.calendar_planner import apply_calendar, suggested_endings, validate_endings
     from core.curriculum_intakes import initialize_curricular_plan
@@ -129,6 +130,9 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
     if imported.get("input_mode") != "virtual_manual":
         from core.presencial_offers import rebalance_presencial_offers
         execution = rebalance_presencial_offers(execution, imported, rules)
+    if manual_offers is not None:
+        from core.manual_presencial_offers import apply_manual_offers
+        execution = apply_manual_offers(execution, imported, manual_offers)
     execution = apply_calendar(execution, instructors, pd.DataFrame(execution["distribution"]), endings, rules,
                                ficha_import=imported, curriculum_catalog=catalog)
     execution["staffing_basis"] = "plant_only_curricula_v1"
@@ -155,6 +159,11 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
             *[(f"Ingresos en oferta T{q} (%)", weight) for q, weight in enumerate(rules.intake_weights, 1)],
         ]
     ]
+    if execution.get("manual_offers"):
+        execution["calculation_parameters"] = [row for row in execution["calculation_parameters"]
+                                                if not row["Parámetro"].startswith("Ingresos en oferta T")]
+        execution["calculation_parameters"].append({"Parámetro": "Distribución de ofertas", "Valor": "Manual",
+                                                    "Origen": "Tabla de ingresos por programa y oferta guardada"})
     execution["calculation_basis"] = (
         "La meta determina cuántas fichas nuevas faltan, descontando las que pasan y usando los aprendices por ficha configurados. "
         "La participación de los programas se obtiene del reporte y las ofertas se distribuyen con los porcentajes configurados. "
