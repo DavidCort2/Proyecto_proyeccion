@@ -27,6 +27,13 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
                 "Capacidad (h/sem)", "Instructor ID"]).to_excel(writer, sheet_name="Contratistas y fechas", index=False)
         pd.DataFrame([metadata]).to_excel(writer, sheet_name="Resumen planeacion", index=False)
         pd.DataFrame([execution["rules"]]).to_excel(writer, sheet_name="Reglas", index=False)
+        if execution.get("plant_balance"):
+            pd.DataFrame(execution["plant_balance"]).to_excel(writer, sheet_name="Descuento de planta", index=False)
+            pd.DataFrame(execution["plant_balance_by_profile"]).to_excel(writer, sheet_name="Planta por programa y perfil", index=False)
+        if execution.get("teaching_lines"):
+            from core.teaching_lines import teaching_line_rows
+            pd.DataFrame(teaching_line_rows(execution["teaching_lines"])).to_excel(writer, sheet_name="Lineas docentes compatibles", index=False)
+            pd.DataFrame([{"Capacidad compartida": execution["teaching_line_basis"]}]).to_excel(writer, sheet_name="Criterio de capacidad", index=False)
         if execution.get("virtual_inputs"):
             for key, sheet in [("programs", "Programas virtuales"), ("cohorts", "Fichas virtuales manuales"), ("plant", "Planta virtual manual")]:
                 pd.DataFrame(execution["virtual_inputs"][key]).to_excel(writer, sheet_name=sheet, index=False)

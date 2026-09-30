@@ -74,6 +74,14 @@ def verify(plan):
     for row in plan["monthly_assignments"]:
         key = row["Ficha"], row["Mes número"]
         assigned[key] = assigned.get(key, 0) + row["Horas asignadas (h/mes)"]
+        if plan.get("teaching_lines") and row["Área"] == "Técnica":
+            from core.program_transitions import program_key
+            from core.teaching_lines import teaching_profile
+            assert program_key(row["Perfil"]) == program_key(teaching_profile(
+                row["Programa"], plan.get("program_transitions", []), plan["teaching_lines"]))
+    for row in plan.get("plant_balance", []):
+        assert math.isclose(row["Capacidad total de planta (h/sem)"], plan["center"]["capacidad_planta_horas_semana"])
+        assert math.isclose(row["Horas requeridas (h/sem)"], row["Horas descontadas de planta (h/sem)"] + row["Horas a contratar por perfil (h/sem)"])
     assert all(math.isclose(assigned.get(key, 0), hours) for key, hours in required.items())
     assert math.isclose(sum(assigned.values()), plan["center"]["demanda_total_horas_anuales"])
     assert all(row["Horas asignadas (h/mes)"] <= row["Capacidad (h/mes)"] + 1e-8 for row in plan["monthly_instructors"])

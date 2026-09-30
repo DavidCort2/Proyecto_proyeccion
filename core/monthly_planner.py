@@ -16,8 +16,9 @@ MONTHLY_BASIS = (
 )
 
 
-def _pool(area, specialty, transitions=()):
-    return area, curriculum_key(active_program(specialty, transitions), "Diurna")[0] if area == "Técnica" else area
+def _pool(area, specialty, transitions=(), lines=()):
+    from core.teaching_lines import teaching_profile
+    return area, curriculum_key(teaching_profile(specialty, transitions, lines), "Diurna")[0] if area == "Técnica" else area
 
 
 def monthly_fichas(execution, rules):
@@ -59,7 +60,9 @@ def monthly_fichas(execution, rules):
 
 
 def apply_monthly_plan(execution, instructors, rules):
+    from core.teaching_lines import teaching_profile
     transitions = execution.get("program_transitions", [])
+    lines = execution.get("teaching_lines", [])
     fichas = monthly_fichas(execution, rules)
     weeks = rules.weeks_per_quarter / 3.0
     staff, labels, demands = defaultdict(list), {}, defaultdict(list)
@@ -71,21 +74,21 @@ def apply_monthly_plan(execution, instructors, rules):
         if document and document in documents:
             raise ValueError("Hay documentos de instructores repetidos; no se puede contar su capacidad dos veces.")
         documents.add(document)
-        key = _pool(person["Área"], person["Especialidad"], transitions)
+        key = _pool(person["Área"], person["Especialidad"], transitions, lines)
         labels.setdefault(key, person["Especialidad"] if person["Área"] == "Técnica" else person["Área"])
         staff[key].append({"id": f"Planta {document or person['Nombre']}", "name": person["Nombre"], "document": document,
                            "type": "Planta", "weekly": rules.weekly_plant_direct_hours})
     for row in execution["distribution"]:
-        key = _pool("Técnica", row["Especialidad"], transitions)
-        labels.setdefault(key, active_program(row["Especialidad"], transitions))
+        key = _pool("Técnica", row["Especialidad"], transitions, lines)
+        labels.setdefault(key, teaching_profile(row["Especialidad"], transitions, lines))
     for area in ("Bilingüismo", "Integralidad"):
         labels.setdefault(_pool(area, area), area)
     for row in fichas:
         for area, label in COMPONENTS.items():
             hours = row[f"{label} (h/mes)"]
             if hours > 0:
-                key = _pool(area, row["Programa"], transitions)
-                labels.setdefault(key, active_program(row["Programa"], transitions) if area == "Técnica" else area)
+                key = _pool(area, row["Programa"], transitions, lines)
+                labels.setdefault(key, teaching_profile(row["Programa"], transitions, lines) if area == "Técnica" else area)
                 demands[(row["Mes número"], key)].append((row, hours))
 
     staffing, individual, assignments, summary = [], [], [], []

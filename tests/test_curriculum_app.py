@@ -387,3 +387,37 @@ def test_offer_edits_apply_only_when_submitted_and_do_not_carry_to_another_year(
     assert next(item.value for item in app.metric if item.label == "Fichas nuevas proyectadas") == "4"
     button(app, "Ejecutar y guardar planeación").click().run()
     assert "manual_offers" not in load_planning(app_args[0])[1]
+
+
+def test_shared_teaching_line_shows_plant_deduction_and_reopens_with_same_result(app_args, tmp_path):
+    from test_curriculum_automation import malla
+    programming = "PROGRAMACION DE SOFTWARE"
+    curricula = []
+    for program in [PROGRAM, programming]:
+        path = tmp_path / (program + " - DIURNA.xlsx")
+        path.write_bytes(malla([10] * 5))
+        curricula.append(str(path))
+    pd.DataFrame([
+        ["Fichas programadas 2026 - Trimestre 4"],
+        ["N°", "Número Ficha", "Tipo Formación", "Jornada", "Trimestre"],
+        [PROGRAM], [1, "001", "Tecnólogo", "Diurna", 1],
+        [programming], [2, "002", "Técnico", "Diurna", 1],
+    ]).to_excel(app_args[2], index=False, header=False)
+    args = (*app_args[:3], curricula)
+    app = open_ready_app(args)
+    app.number_input(key="target_technical").set_value(25)
+    app.number_input(key="target_technologist").set_value(25).run()
+    assert not app.exception and not app.error
+    assert next(item.value for item in app.metric if item.label == "Total de contratistas requeridos") == "0"
+    balance = next(item for item in app.expander if item.label == "Descuento de horas de planta y saldo a contratar")
+    assert balance.dataframe[0].value["Horas descontadas de planta (h/sem)"].eq(20).all()
+    assert balance.dataframe[0].value["Capacidad total de planta (h/sem)"].eq(64).all()
+    lines = next(item for item in app.expander if item.label == "Programas compatibles y capacidad compartida")
+    assert lines.dataframe[0].value["Línea docente"].eq("Línea · Software").all()
+    button(app, "Ejecutar y guardar planeación").click().run()
+    saved = load_planning(args[0])[1]
+    assert saved["teaching_lines"][0]["name"] == "Línea · Software"
+    reopened = AppTest.from_function(automatic_app_for_test, args=args, default_timeout=30).run()
+    assert not reopened.exception and not reopened.error
+    assert not any("pendientes de ejecutar" in item.value for item in reopened.warning)
+    assert next(item.value for item in reopened.metric if item.label == "Total de contratistas requeridos") == "0"

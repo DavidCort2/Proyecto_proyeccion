@@ -120,7 +120,9 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     from core.curriculum import duration_lookup
     from core.curriculum_intakes import OFFER_BASIS, curricular_offer_schedule, curricular_offer_tables
     from core.program_transitions import active_program
+    from core.teaching_lines import teaching_profile
     transitions = execution.get("program_transitions", [])
+    lines = execution.get("teaching_lines", [])
     # La presencia de mallas obliga al calendario curricular, incluso si falta
     # una etiqueta de una ejecución anterior; nunca activa reposiciones extra.
     if "presencial_offer_schedule" in execution:
@@ -164,7 +166,7 @@ def apply_calendar(execution, instructors, distribution, endings, rules, *, modu
     technical_rows, transversal_rows, quarterly = [], [], []
     for quarter in range(1, 5):
         group = calendar.loc[calendar["Trimestre"] == quarter].copy()
-        group["Especialidad"] = group["Especialidad"].map(lambda name: active_program(name, transitions))
+        group["Especialidad"] = group["Especialidad"].map(lambda name: teaching_profile(name, transitions, lines))
         totals = group.groupby("Especialidad", as_index=False).agg(**{
             "Fichas nuevas": ("Fichas nuevas", "sum"),
             "Fichas que pasan": ("Fichas activas", "sum"),

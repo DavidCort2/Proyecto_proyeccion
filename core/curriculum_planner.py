@@ -133,6 +133,15 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
     if manual_offers is not None:
         from core.manual_presencial_offers import apply_manual_offers
         execution = apply_manual_offers(execution, imported, manual_offers)
+    if imported.get("input_mode") != "virtual_manual":
+        from core.teaching_lines import prepare_teaching_lines, shared_teaching_staff, TEACHING_LINE_BASIS
+        lines = prepare_teaching_lines(execution["distribution"], instructors, execution.get("program_transitions", []))
+        if lines:
+            from core.planner import plant_resource_summary
+            execution["teaching_lines"] = lines
+            execution["teaching_line_basis"] = TEACHING_LINE_BASIS
+            instructors = shared_teaching_staff(instructors, execution.get("program_transitions", []), lines)
+            execution["resources"] = records(plant_resource_summary(instructors, rules))
     execution = apply_calendar(execution, instructors, pd.DataFrame(execution["distribution"]), endings, rules,
                                ficha_import=imported, curriculum_catalog=catalog)
     execution["staffing_basis"] = "plant_only_curricula_v1"
@@ -179,6 +188,14 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
             " Las horas y contratistas se calculan desde las mallas según la edad de cada ficha y su oferta, "
             "descontando la capacidad de planta por perfil y período."
         )
+    if execution.get("teaching_lines"):
+        execution["staffing_basis"] = "plant_only_curricula_shared_lines_v1"
+        execution["calculation_basis"] += " " + execution["teaching_line_basis"]
+        execution["contracting_basis"] = execution["teaching_line_basis"]
     from core.monthly_planner import apply_monthly_plan
     from core.contracting_periods import apply_contracting_periods
-    return apply_contracting_periods(apply_monthly_plan(execution, instructors, rules), rules)
+    execution = apply_monthly_plan(execution, instructors, rules)
+    if imported.get("input_mode") != "virtual_manual":
+        from core.plant_balance import apply_plant_balance
+        execution = apply_plant_balance(execution, rules)
+    return apply_contracting_periods(execution, rules)

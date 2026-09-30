@@ -69,6 +69,16 @@ En **Contratistas requeridos y fecha de finalización**, cada fila identifica un
 
 Los programas y niveles de la oferta se obtienen del reporte de fichas, incluidas sus combinaciones sin continuaciones. La malla por sí sola no identifica el nivel; para incorporar un programa a la oferta debe estar identificado con su nivel y jornada en el reporte.
 
+La capacidad de **planta y contratistas** se comparte entre programas de la misma línea docente compatible, incluidos técnicos, tecnólogos y sus jornadas. El centro definió estas compatibilidades en `config/presencial_programs.json`:
+
+- **Software:** Análisis y Desarrollo de Software, Programación de Software y Control de la Seguridad Digital.
+- **Metrología:** Mediciones Físicas y Aseguramiento Metrológico Industrial.
+- **Mecánica:** Dibujo Mecánico y Desarrollo de Componentes Mecánicos.
+
+Por trimestre, se suman las horas de las fichas de la línea, se descuenta toda su capacidad de planta una sola vez y se divide el saldo positivo entre las horas por contratista, redondeando al final de la línea. Cada instructor puede atender fichas de sus programas compatibles hasta completar su capacidad. Bilingüismo e Integralidad cubren todos los programas desde sus respectivos perfiles. Las líneas sin compatibilidad indicada conservan sus perfiles separados; los programas antiguo y vigente de Automatización mantienen la capacidad compartida ya configurada.
+
+**Descuento de horas de planta y saldo a contratar** muestra capacidad registrada, horas aplicadas, horas libres y saldo por trimestre y perfil. También presenta el saldo global matemático para distinguirlo del saldo que puede cubrirse respetando compatibilidades. **Programas compatibles y capacidad compartida** permite consultar las agrupaciones utilizadas. El Excel incluye estos balances, las líneas y las asignaciones de cada instructor a las fichas. Las metas, las ofertas editadas y las horas de las mallas conservan sus propios datos; compartir capacidad no fusiona programas ni fichas. Estas compatibilidades se aplican únicamente a presencial.
+
 ## Formato de las mallas presenciales
 
 Cada hoja `Trimestre N` representa un trimestre de formación. Deben existir todos desde el 1, sin saltos. Se permiten portadas sin tablas curriculares.

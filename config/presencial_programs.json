@@ -6,5 +6,22 @@
       "popular": true,
       "source": "Actualización de oferta indicada por el usuario: reemplazo del programa y planta compartida."
     }
+  ],
+  "teaching_lines": [
+    {
+      "name": "Línea · Software",
+      "programs": ["ANALISIS Y DESARROLLO DE SOFTWARE", "PROGRAMACION DE SOFTWARE", "CONTROL DE LA SEGURIDAD DIGITAL"],
+      "source": "Compatibilidad de planta y contratistas entre técnicos y tecnólogos indicada por el usuario."
+    },
+    {
+      "name": "Línea · Metrología",
+      "programs": ["MEDICIONES FISICAS", "ASEGURAMIENTO METROLOGICO INDUSTRIAL"],
+      "source": "Compatibilidad de planta y contratistas entre técnicos y tecnólogos indicada por el usuario."
+    },
+    {
+      "name": "Línea · Mecánica",
+      "programs": ["DIBUJO MECANICO", "DESARROLLO DE COMPONENTES MECANICOS"],
+      "source": "Compatibilidad de planta y contratistas entre técnicos y tecnólogos indicada por el usuario."
+    }
   ]
 }

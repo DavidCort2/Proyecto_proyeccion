@@ -24,6 +24,22 @@ def render_contracting_summary(execution):
         else:
             st.info("La planta cubre todas las horas de la vigencia; no se requieren contratistas.")
         st.caption("Las horas se toman de las competencias de la malla que cursa cada ficha en cada trimestre. Se descuenta únicamente la cobertura de planta.")
+    if execution.get("plant_balance"):
+        with st.expander("Descuento de horas de planta y saldo a contratar"):
+            st.caption("Horas a contratar = horas requeridas − horas cubiertas por planta. "
+                       "La capacidad corresponde a todos los instructores de planta del reporte y se cuenta una sola vez. "
+                       "El saldo global resta toda esa capacidad; el saldo por perfil muestra las horas que quedan "
+                       "al respetar las líneas compatibles y áreas docentes.")
+            for field in ("plant_balance", "plant_balance_by_profile"):
+                frame = pd.DataFrame(execution[field])
+                st.dataframe(frame, hide_index=True, use_container_width=True,
+                             column_config={name: st.column_config.NumberColumn(format="%.2f")
+                                            for name in frame.columns if name.endswith("(h/sem)")})
+            if execution.get("teaching_line_basis"):
+                st.caption(execution["teaching_line_basis"])
+            else:
+                st.caption("Las horas libres de un perfil no se descuentan de otro. Los contratistas se redondean "
+                           "hacia arriba por perfil y trimestre, usando su capacidad semanal configurada.")
     if "intake_decisions" in execution:
         levels = pd.DataFrame(execution["levels"])
         c1, c2, c3 = st.columns(3)
@@ -81,6 +97,11 @@ def render_contracting_details(execution):
 
 def render_planning_details(execution, instructors, *, offer_editor=None):
     render_intake_offers(execution, editor=offer_editor)
+    if execution.get("teaching_lines"):
+        from core.teaching_lines import teaching_line_rows
+        with st.expander("Programas compatibles y capacidad compartida"):
+            st.caption(execution["teaching_line_basis"])
+            st.dataframe(pd.DataFrame(teaching_line_rows(execution["teaching_lines"])), hide_index=True, use_container_width=True)
     if execution.get("program_transitions"):
         with st.expander("Programas actualizados y planta compartida"):
             st.caption(execution["program_transition_basis"])
