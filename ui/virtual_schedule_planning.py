@@ -13,6 +13,7 @@ from core.virtual_staffing_reports import contract_reports, profile_peak_rows, s
 from ui.planning_session import clear_module_session, scoped_key, widget_key
 from ui.system_reset import render_system_reset
 from ui.virtual_schedule_input import manual_schedule_inputs, schedule_inputs
+from ui.presencial_offer_editor import render_offer_editor, render_restore_offers
 
 
 def virtual_parameters(previous):
@@ -58,13 +59,15 @@ def render_virtual_summary(plan):
     c1.metric("Técnicos en el pico", summary["tecnicos_en_pico"])
     c2.metric("Transversales en el pico", summary["transversales_en_pico"])
     st.caption("Los técnicos y transversales mostrados corresponden al mismo intervalo. La contratación se calcula cuando cambian las actividades; un promedio mensual no oculta los picos de carga.")
+    if plan.get("plant_workload_basis"):
+        st.caption(plan["plant_workload_basis"])
     st.markdown("**Picos por perfil docente**")
     st.dataframe(pd.DataFrame(profile_peak_rows(plan["staffing"], plan["rules"])), hide_index=True, use_container_width=True)
     st.caption("Cada fila muestra el máximo simultáneo de ese perfil. Sus picos pueden ocurrir en fechas distintas: el total superior se obtiene comparando los intervalos, no sumando estos máximos. Una atención transversal es una competencia activa de una ficha; sus distintos resultados no multiplican las horas.")
     st.bar_chart(pd.DataFrame(plan["quarterly"]).set_index("Trimestre")[["Pico simultáneo de contratistas"]])
 
 
-def render_virtual_details(plan):
+def render_virtual_details(plan, *, offer_editor=None):
     c1, c2, c3 = st.columns(3)
     c1.metric("Total de horas al año", f"{plan['center']['demanda_total_horas_anuales']:g}")
     c2.metric("Fichas nuevas proyectadas", plan["center"]["fichas_nuevas"])
@@ -78,7 +81,7 @@ def render_virtual_details(plan):
                        ("cohort_dates", "Fechas y fases de las fichas"), ("levels", "Metas por nivel"),
                        ("periods", "Contratación por intervalos del cronograma"), ("monthly", "Resumen mensual"),
                        ("monthly_fichas", "Horas y fases de cada ficha por mes"),
-                       ("monthly_instructors", "Capacidad y horas disponibles de cada instructor"),
+                       ("monthly_instructors", "Jornada completa y formación de cada instructor"),
                        ("technical_support", "Apoyo de instructores técnicos a transversal general"),
                        ("monthly_assignments", "Asignación mensual de fichas a instructores"),
                        ("staffing", "Cobertura de planta por tipo y perfil"), ("activity_hours", "Horas por fase y competencia")]:
@@ -93,9 +96,19 @@ def render_virtual_details(plan):
                 st.caption("El mismo instructor combina carga técnica y apoyo transversal, sin superar su capacidad semanal. Cada fila muestra el apoyo durante ese intervalo; no representa otro instructor contratado.")
             if key == "monthly_instructors":
                 st.caption("Cada persona aparece una sola vez por mes. Las horas técnicas y transversales asignadas comparten su misma capacidad. El máximo de fichas de su perfil no incluye las atenciones de apoyo.")
+                if plan.get("plant_workload_basis"):
+                    st.caption(plan["plant_workload_basis"])
             if key == "staffing":
                 st.caption("Las horas a contratar incluyen todo el trabajo de contratistas. El apoyo técnico contratado ya lo cubren los contratistas técnicos; la columna de contratistas propios del perfil muestra el saldo atendido por contratistas transversales.")
-            st.dataframe(pd.DataFrame(tables[key]), hide_index=True, use_container_width=True)
+            if key == "offers_by_program" and offer_editor is not None:
+                offer_editor(plan)
+                columns = [f"Oferta {q}" for q in range(1, 5)] + ["Total anual"]
+                st.dataframe(pd.DataFrame([{"Programa": "TOTAL", **pd.DataFrame(tables[key])[columns].sum().to_dict()}]),
+                             hide_index=True, use_container_width=True)
+            elif key == "monthly_instructors":
+                st.dataframe(pd.DataFrame(plan.get("monthly_workload", tables[key])), hide_index=True, use_container_width=True)
+            else:
+                st.dataframe(pd.DataFrame(tables[key]), hide_index=True, use_container_width=True)
     with st.expander("Resultados del cronograma por perfil"):
         activities = pd.DataFrame(schedule_activity_rows(plan["schedule_catalog"]))
         profile = st.selectbox("Perfil docente a revisar", sorted(activities["Perfil"].unique()), key=widget_key("audit_profile"))
@@ -130,6 +143,8 @@ def render_virtual_schedule_planning(path):
     elif saved and previous.get("workload_model") != WORKLOAD_MODEL:
         st.info("La vista previa aplica 1 hora diaria por competencia transversal y ficha, equivalente a 5 semanales, y aprovecha la capacidad técnica disponible para apoyar transversal general. Bilingüismo y Cultura física conservan sus perfiles exclusivos. Ejecute y guarde para actualizar los resultados y el Excel; sus fichas, fechas y planta se conservan.")
     preview, staff, problem = None, None, None
+    recalculate = None
+    manual_offers = previous.get("manual_offers")
     with settings:
         year, targets, rules = virtual_parameters(previous)
         for error in rules.validate():
@@ -137,16 +152,38 @@ def render_virtual_schedule_planning(path):
         draft = manual_schedule_inputs(catalog, previous)
         if draft and ready and not rules.validate():
             try:
-                staff, preview = execute_virtual_schedule_plan(catalog, **draft, rules=rules, targets=targets, year=year)
+                def recalculate(offers):
+                    return execute_virtual_schedule_plan(catalog, **draft, rules=rules, targets=targets, year=year,
+                                                         manual_offers=offers)
+                active_offers = manual_offers if manual_offers and manual_offers["planning_year"] == year else None
+                staff, preview = recalculate(active_offers)
             except ValueError as exc:
                 problem = str(exc)
                 st.warning(problem)
         render_system_reset(path)
     with planning:
+        message = st.session_state.pop(scoped_key("virtual_offers_saved"), None)
+        if message:
+            st.success(message)
+        if manual_offers and manual_offers["planning_year"] != year:
+            st.info("Las ofertas editadas corresponden a otra vigencia. Para esta vigencia se muestra el reparto automático.")
+
+        def save_offers(offers):
+            revised_staff, revised_plan = recalculate(offers)
+            save_planning(path, revised_staff, revised_plan)
+
         if preview:
             render_virtual_summary(preview)
+            if preview.get("manual_offers"):
+                st.caption("Se aplican las cantidades guardadas en la tabla de ofertas; las metas se conservan como referencia.")
+                if preview["center"]["aprendices_sin_cobertura"]:
+                    st.warning(f"Las ofertas editadas dejan {preview['center']['aprendices_sin_cobertura']} aprendices sin cobertura de la meta. Consulte Metas por nivel.")
+                if preview["center"]["aprendices_sobre_meta"]:
+                    st.info(f"Hay {preview['center']['aprendices_sobre_meta']} cupos por encima de la meta en los niveles con excedente.")
         else:
             st.info(problem or "Cargue los cronogramas, clasifique las actividades y complete los datos manuales para obtener la planeación.")
+            if manual_offers and recalculate is not None:
+                render_restore_offers(save_offers, modality="virtual")
         current = {key: value for key, value in previous.items() if key != "saved_at"}
         pending = preview is None or json.dumps(preview, sort_keys=True) != json.dumps(current, sort_keys=True)
         if pending and preview:
@@ -165,7 +202,7 @@ def render_virtual_schedule_planning(path):
                            file_name=f"planeacion_titulada_virtual_{year}.xlsx", disabled=not downloadable,
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if preview:
-            render_virtual_details(preview)
+            render_virtual_details(preview, offer_editor=lambda plan: render_offer_editor(plan, save_offers, modality="virtual"))
         if saved and pending:
             with st.expander("Descargar la ejecución anterior"):
                 st.caption(f"Guardada (UTC): {saved[1]['saved_at']} · Vigencia {saved[1]['planning_year']}.")

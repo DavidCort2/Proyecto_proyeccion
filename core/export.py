@@ -3,6 +3,7 @@ from io import BytesIO
 import pandas as pd
 
 from core.contracting_periods import contracting_headline, individual_contract_periods
+from core.plant_workload import workload_capacity_rows
 
 def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
     """Exporta únicamente la instantánea ejecutada y guardada."""
@@ -28,8 +29,8 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
         pd.DataFrame([metadata]).to_excel(writer, sheet_name="Resumen planeacion", index=False)
         pd.DataFrame([execution["rules"]]).to_excel(writer, sheet_name="Reglas", index=False)
         if execution.get("plant_balance"):
-            pd.DataFrame(execution["plant_balance"]).to_excel(writer, sheet_name="Descuento de planta", index=False)
-            pd.DataFrame(execution["plant_balance_by_profile"]).to_excel(writer, sheet_name="Planta por programa y perfil", index=False)
+            pd.DataFrame(workload_capacity_rows(execution, "plant_balance")).to_excel(writer, sheet_name="Descuento de planta", index=False)
+            pd.DataFrame(workload_capacity_rows(execution, "plant_balance_by_profile")).to_excel(writer, sheet_name="Planta por programa y perfil", index=False)
         if execution.get("teaching_lines"):
             from core.teaching_lines import teaching_line_rows
             pd.DataFrame(teaching_line_rows(execution["teaching_lines"])).to_excel(writer, sheet_name="Lineas docentes compatibles", index=False)
@@ -77,7 +78,8 @@ def export_planning(instructors: pd.DataFrame, execution: dict) -> bytes:
             for key, sheet in [("monthly", "Resumen mensual"), ("monthly_fichas", "Horas mensuales por ficha"),
                                ("monthly_staffing", "Dotacion mensual por perfil"), ("monthly_instructors", "Capacidad mensual instructores"),
                                ("monthly_assignments", "Asignacion mensual de horas")]:
-                pd.DataFrame(execution[key]).to_excel(writer, sheet_name=sheet, index=False)
+                rows = execution.get("monthly_workload", execution[key]) if key == "monthly_instructors" else workload_capacity_rows(execution, key)
+                pd.DataFrame(rows).to_excel(writer, sheet_name=sheet, index=False)
             pd.DataFrame([{"Distribución mensual": execution["monthly_basis"],
                            "Base de contratación": execution.get("contracting_basis", execution.get("continuity_assumption", ""))}]).to_excel(writer, sheet_name="Supuestos mensuales", index=False)
         if "contract_windows" in execution:

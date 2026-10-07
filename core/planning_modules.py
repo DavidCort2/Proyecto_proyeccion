@@ -9,3 +9,9 @@ def planning_database(base_path, modality):
     if modality == "Virtual":
         return base.with_name(f"{base.stem}_virtual{base.suffix}")
     raise ValueError("Modalidad de Titulada no reconocida.")
+
+
+def complementary_database(base_path):
+    """Ambas modalidades comparten una reserva de horas, separada de Titulada."""
+    base = Path(base_path)
+    return base.with_name(f"{base.stem}_complementaria{base.suffix}")

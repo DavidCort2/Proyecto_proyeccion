@@ -4,9 +4,19 @@ from dataclasses import dataclass
 import streamlit as st
 
 
+SCOPE_PREFIXES = {"Presencial": "", "Virtual": "virtual:",
+                  "Complementaria Presencial": "complementaria:presencial:",
+                  "Complementaria Virtual": "complementaria:virtual:", "Complementaria común": "complementaria:shared:"}
+
+
+def scope_for_key(key):
+    for scope, prefix in reversed(list(SCOPE_PREFIXES.items())):
+        if key.startswith(prefix):
+            return scope
+
+
 def scoped_key(name):
-    prefix = "virtual:" if st.session_state.get("_planning_scope") == "Virtual" else ""
-    return prefix + name
+    return SCOPE_PREFIXES.get(st.session_state.get("_planning_scope"), "") + name
 
 
 def widget_key(name):
@@ -20,17 +30,17 @@ def preserve_planning_widgets(active_modality=None):
     # Streamlit elimina los widgets ocultos al navegar. Separarlos de su ciclo
     # de vida mantiene los borradores hasta guardar o limpiar esa modalidad.
     for key in st.session_state.get("_planning_widget_keys", set()):
-        active = active_modality is not None and key.startswith("virtual:") == (active_modality == "Virtual")
+        active = active_modality is not None and scope_for_key(key) == active_modality
         if not active and key in st.session_state:
             st.session_state[key] = st.session_state[key]
 
 
 def clear_module_session():
-    virtual = st.session_state.get("_planning_scope") == "Virtual"
+    scope = st.session_state.get("_planning_scope", "Presencial")
     for key in list(st.session_state):
         if key.startswith("_") or key.startswith("nav_"):
             continue
-        if key.startswith("virtual:") == virtual:
+        if scope_for_key(key) == scope:
             del st.session_state[key]
     # Estos metadatos también pertenecen a la modalidad activa.
     for name in ("_database_reset_version", "_system_reset_complete"):

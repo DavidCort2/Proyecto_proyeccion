@@ -16,8 +16,11 @@ def export_virtual_schedule(instructors, plan):
         pd.DataFrame([plan["rules"]]).to_excel(writer, sheet_name="Parametros", index=False)
         for key, sheet in [("programs", "Programas virtuales"), ("cohorts", "Fichas virtuales manuales"), ("plant", "Planta virtual manual")]:
             pd.DataFrame(plan["virtual_inputs"][key]).to_excel(writer, sheet_name=sheet, index=False)
-        pd.DataFrame([{"Oferta": i + 1, "Inicio": value, "Porcentaje": plan["rules"]["intake_weights"][i]}
+        pd.DataFrame([{"Oferta": i + 1, "Inicio": value,
+                       ("Porcentaje automático de referencia" if plan.get("manual_offers") else "Porcentaje"): plan["rules"]["intake_weights"][i]}
                       for i, value in enumerate(plan["virtual_inputs"]["offers"])]).to_excel(writer, sheet_name="Fechas de ofertas", index=False)
+        if plan.get("manual_offers"):
+            pd.DataFrame(plan["manual_offers"]["programs"]).to_excel(writer, sheet_name="Ofertas editadas", index=False)
         for key, sheet in [("levels", "Metas por nivel"), ("distribution", "Distribucion"), ("offers_by_program", "Fichas por oferta"),
                            ("cohort_dates", "Fechas y fases de fichas"), ("periods", "Contratacion por fechas"), ("contracts", "Contratistas y fechas"),
                            ("monthly", "Resumen mensual"), ("staffing", "Cobertura por perfil"), ("activity_hours", "Trazabilidad horas")]:
@@ -33,7 +36,8 @@ def export_virtual_schedule(instructors, plan):
                 pd.DataFrame(plan["technical_support"]).to_excel(writer, sheet_name="Apoyo tecnico transversal", index=False)
             for key, sheet in [("quarterly", "Resumen trimestral"), ("monthly_fichas", "Horas mensuales por ficha"),
                                ("monthly_instructors", "Capacidad por instructor"), ("monthly_assignments", "Asignaciones mensuales")]:
-                pd.DataFrame(plan[key]).to_excel(writer, sheet_name=sheet, index=False)
+                rows = plan.get("monthly_workload", plan[key]) if key == "monthly_instructors" else plan[key]
+                pd.DataFrame(rows).to_excel(writer, sheet_name=sheet, index=False)
             pd.DataFrame(competency_rows(plan["schedule_catalog"])).to_excel(writer, sheet_name="Competencias unicas", index=False)
         catalog = plan["schedule_catalog"]["schedules"]
         pd.DataFrame([{"Programa": item["program"], **row,

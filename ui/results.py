@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from core.export import export_planning
+from core.plant_workload import workload_capacity_rows
 from ui.contracting_results import render_contracting, render_intake_offers
 
 
@@ -41,8 +42,10 @@ def render_results(instructors: pd.DataFrame, execution: dict) -> None:
             st.dataframe(pd.DataFrame(execution["monthly"]), hide_index=True, use_container_width=True)
             with st.expander("Horas mensuales por ficha y capacidad de cada instructor"):
                 st.dataframe(pd.DataFrame(execution["monthly_fichas"]), hide_index=True, use_container_width=True)
-                st.dataframe(pd.DataFrame(execution["monthly_staffing"]), hide_index=True, use_container_width=True)
-                st.dataframe(pd.DataFrame(execution["monthly_instructors"]), hide_index=True, use_container_width=True)
+                if execution.get("plant_workload_basis"):
+                    st.caption(execution["plant_workload_basis"])
+                st.dataframe(pd.DataFrame(workload_capacity_rows(execution, "monthly_staffing")), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(execution.get("monthly_workload", execution["monthly_instructors"])), hide_index=True, use_container_width=True)
             with st.expander("Distribución mensual de horas entre instructores y fichas"):
                 st.dataframe(pd.DataFrame(execution["monthly_assignments"]), hide_index=True, use_container_width=True)
         if "levels" in execution:

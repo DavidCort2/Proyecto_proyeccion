@@ -1,6 +1,6 @@
 # Sistema de Planeación Indicativa SENA
 
-Aplicación Python y Streamlit para calcular fichas, horas e instructores. Titulada presencial usa mallas trimestrales; Titulada virtual usa competencias y duración de fases de cronogramas Excel, con carga docente automática por ficha. Cada modalidad tiene entradas, parámetros, catálogos y resultados independientes. SQLite conserva la clasificación y la última planeación ejecutada de cada modalidad.
+Aplicación Python y Streamlit para calcular fichas, horas e instructores. Titulada presencial usa mallas trimestrales; Titulada virtual usa competencias y duración de fases de cronogramas Excel, con carga docente automática por ficha. Cada modalidad de Titulada tiene entradas, parámetros, catálogos y resultados independientes. Complementaria presencial y virtual calculan cursos desde sus metas y comparten las horas libres de contratistas proyectados en Titulada. SQLite conserva las últimas planeaciones ejecutadas.
 
 ## Iniciar
 
@@ -11,7 +11,9 @@ py -m pip install -r requirements.txt
 py -m streamlit run app.py
 ```
 
-No requiere servidor de base de datos. Titulada presencial conserva la base existente `data/planeacion.sqlite3`; Titulada virtual usa `data/planeacion_virtual.sqlite3`. No se trasladan ni copian automáticamente datos de una modalidad a otra.
+No requiere servidor de base de datos. Titulada presencial conserva la base existente `data/planeacion.sqlite3`; Titulada virtual usa `data/planeacion_virtual.sqlite3`. Sus entradas no se trasladan entre modalidades. Complementaria guarda el escenario conjunto en `data/planeacion_complementaria.sqlite3` y consulta Titulada sin modificarla.
+
+En ambas modalidades, cada instructor de planta tiene su jornada completa programada. Las tablas mensuales y el Excel separan **Horas de formación**, **Otras actividades** y **Horas totales programadas**. Las otras actividades completan la diferencia entre la capacidad configurada y la formación compatible asignada, incluso en meses sin fichas. No generan horas de clase ni reducen la contratación: únicamente la cobertura de formación se descuenta de la demanda curricular. Los perfiles docentes se conservan y los contratistas no reciben horas de otras actividades automáticamente.
 
 ## Navegación
 
@@ -21,10 +23,24 @@ En la barra lateral seleccione **Formación** (Titulada o Complementaria) y **Mo
 | --- | --- |
 | Titulada · Presencial | Flujo existente: reportes de planta y fichas, mallas, metas y parámetros. |
 | Titulada · Virtual | Cronogramas Excel por fases; competencias únicas, carga automática, fichas que pasan con fin lectivo, planta identificada y ofertas trimestrales. |
-| Complementaria · Presencial | Espacio vacío, pendiente de implementar. |
-| Complementaria · Virtual | Espacio vacío, pendiente de implementar. |
+| Complementaria · Presencial | Meta, aprendices por curso, duración en horas y planta propia; aprovecha contratistas de ambas modalidades de Titulada. |
+| Complementaria · Virtual | Mismas entradas y cálculo, con metas propias y una reserva de capacidad compartida con Complementaria presencial. |
 
 Los borradores de las dos modalidades de Titulada se conservan al navegar durante la misma sesión. Para conservar la planeación al cerrar el navegador, pulse **Ejecutar y guardar planeación**. Los catálogos y su clasificación tienen sus propios botones de guardado. La limpieza afecta solamente a la modalidad abierta; conserva la otra modalidad y los Excel originales.
+
+## Preparar y ejecutar Complementaria
+
+1. Guarde las proyecciones de Titulada presencial y virtual para la vigencia que desea planear. Complementaria solo reutiliza la capacidad de las últimas ejecuciones guardadas de esa misma vigencia.
+2. Seleccione **Complementaria → Presencial** o **Virtual**. En **Meta y planta**, ingrese la meta de aprendices, el promedio editable de aprendices por curso y la duración promedio **en horas**. La vigencia es común a las dos modalidades.
+3. Registre la planta propia de cada modalidad con nombre completo, cédula y capacidad semanal de formación (inicialmente 32 horas). No se utiliza la planta de Titulada. Una persona no puede registrarse dos veces.
+4. Revise **Planeación**: cursos necesarios, cobertura de planta propia, cursos con apoyo de Titulada y pico de contratistas adicionales. Los detalles muestran cursos y fechas, horas mensuales, contratación y la capacidad compartida por instructor.
+5. Pulse **Ejecutar y guardar Complementaria**. Este botón guarda y recalcula ambas modalidades juntas, incluyendo los borradores conservados al navegar, para no reservar dos veces las mismas horas. Después puede descargar el Excel conjunto. Cambiar y guardar Titulada actualiza la siguiente vista previa de Complementaria; debe guardar nuevamente para actualizar su Excel.
+
+El número de cursos es `redondear hacia arriba(meta / aprendices por curso)`. Cada curso requiere 10 horas semanales según el criterio operativo del centro; su duración equivalente es `horas del curso / 10` semanas. Un contratista con 40 horas completamente disponibles atiende hasta cuatro cursos simultáneos y puede recibir nuevos cursos cuando terminan los anteriores.
+
+Primero se utiliza la planta propia; después, las horas libres de contratistas de Titulada presencial y virtual, descontando toda su carga ya asignada. Solo los cursos que no caben en esa disponibilidad generan una estimación de contratación adicional. Cada curso conserva el mismo instructor durante toda su duración y no prolonga contratos de Titulada. Las dos modalidades comparten una sola reserva de capacidad; sus picos individuales no se suman para obtener el pico conjunto.
+
+Las fechas son indicativas: dos horas por curso de lunes a viernes, sin calendario de festivos o recesos. La estimación utiliza duraciones promedio y capacidad agregada, sin validar el perfil temático de cursos específicos ni desplazamientos. **Fuentes y criterios** muestra las ejecuciones de origen, los supuestos y las referencias oficiales. Consulte [COMPLEMENTARIA.md](docs/COMPLEMENTARIA.md) para el alcance normativo y los casos de validación.
 
 ## Preparar y ejecutar Titulada virtual
 
@@ -37,6 +53,8 @@ Los borradores de las dos modalidades de Titulada se conservan al navegar durant
 7. En **Planeación**, revise primero el pico simultáneo de contratistas y su trimestre, seguido de **Picos por perfil docente** con carga máxima, fichas, atenciones y capacidad. **Contratistas requeridos y fechas** muestra cada cupo una sola vez con sus períodos y pausas; el **Detalle de períodos de contratación** conserva cada intervalo por separado. Cupo 2 identifica al segundo instructor del perfil, no significa dos instructores por fila. Los máximos de perfiles distintos no se suman si ocurren en fechas diferentes. **Resultados del cronograma por perfil** permite revisar todas las actividades reconocidas y su fila de origen. Debajo aparecen excedentes por trimestre, fichas por oferta, horas por ficha y mes, capacidad disponible y asignaciones. El Excel incluye también cupos únicos, períodos, picos y actividades por perfil. Pulse **Ejecutar y guardar planeación** para conservar datos y habilitar el Excel actualizado.
 
 Las nuevas cubren el saldo de la meta después de descontar los aprendices que pasan: se divide por aprendices por ficha y se redondea hacia arriba una sola vez por nivel. Las duraciones se toman de los bloques del Excel. Los meses siguen el calendario y las fracciones se prorratean entre aniversarios mensuales. La confirmación del usuario sobre ADSO está documentada en `config/virtual_programs.json`: la diferencia hasta el total lectivo declarado se agrega a Evaluación. En el archivo recibido son 1,75 meses adicionales, para completar 21; no se fija un número de instructores por programa.
+
+En el detalle **Fichas nuevas por programa y oferta** puede editar las cantidades de **Oferta 1–4**, incluido el total anual por programa. **Guardar ofertas y recalcular** reconstruye las fichas nuevas desde sus ofertas y cronogramas, actualiza las horas, la contratación, los picos y las fechas, y guarda el resultado para el Excel. Las fichas que pasan conservan sus fechas. Se muestran los cupos faltantes o excedentes frente a las metas. Las cantidades guardadas tienen prioridad sobre el reparto automático durante esa vigencia; **Restaurar distribución automática** vuelve a calcular desde las metas y porcentajes actuales. Cambiar de vigencia inicia nuevamente con el reparto automático. La edición virtual no modifica presencial.
 
 La atención técnica definida por el usuario es de **2 horas diarias de lunes a viernes**, equivalentes a **10 semanales por ficha** para el conjunto técnico activo. Transversal general, Bilingüismo y Cultura física requieren **1 hora diaria de lunes a viernes por competencia y ficha**, equivalente a **5 horas semanales**, solo durante los bloques donde están activos. Varias actividades de una misma competencia no multiplican su carga; dos competencias distintas sí suman sus horas aunque compartan instructor. Los meses y tramos parciales cuentan los días de lunes a viernes. Sin calendario de festivos cargado, no se descuentan festivos.
 
@@ -193,6 +211,7 @@ El reporte incluido `data/reporteFichas_2026_4.xlsx` contiene varios programas. 
 | `specialties`, `instructors`, vista `plant_instructors` | Último reporte normalizado de instructores. |
 | `execution` | Última ejecución, entradas, copia de mallas y clasificación, cálculos y resultados. |
 | `virtual_schedules` (solo Virtual) | Cronogramas, fases, actividades, fechas, clasificación y horas docentes manuales. |
+| `complementary_execution` (base de Complementaria) | Escenario conjunto, entradas, fuentes de Titulada, reservas de capacidad, cursos, contratos y revisión del guardado. |
 
 Guardar una planeación reemplaza los instructores y la ejecución previa en una transacción. Los catálogos permanecen. Modificar el catálogo no modifica la copia de una ejecución anterior ni su descarga. La ejecución virtual conserva una copia del cronograma y su carga docente; su Excel incluye fechas de ofertas, fases, clasificación, contratos, cobertura por perfil y observaciones de origen.
 
@@ -216,7 +235,7 @@ La documentación previa se conserva en `docs/MODELOS_ANTERIORES.md`. Sus cálcu
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Las pruebas usan bases temporales. Las mallas originales están en `tests/fixtures/curricula/` y el cronograma virtual real en `tests/fixtures/virtual_schedules/`. Se comprueban importación, clasificación, reimportación, transacciones, jornadas presenciales, fases virtuales, continuaciones, ofertas, capacidad, exportación e interfaz. También se verifica que guardar o limpiar una modalidad no cambie la otra base.
+Las pruebas usan bases temporales. Las mallas originales están en `tests/fixtures/curricula/` y el cronograma virtual real en `tests/fixtures/virtual_schedules/`. Se comprueban importación, clasificación, reimportación, transacciones, jornadas presenciales, fases virtuales, continuaciones, ofertas, capacidad, exportación e interfaz. Complementaria comprueba reservas compartidas, cursos completos, rotación anual, exclusión de planta de Titulada y actualización desde las fuentes guardadas. También se verifica que guardar Complementaria no cambie las bases de Titulada y que limpiar Titulada conserve Complementaria.
 
 Para comprobar los reportes y mallas de la base local y generar un Excel de revisión sin reemplazar la última ejecución:
 

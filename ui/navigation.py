@@ -11,10 +11,13 @@ def render_application(base_path):
         st.title("Planeación Indicativa")
         training = st.radio("Formación", ["Titulada", "Complementaria"], key="nav_training")
         modality = st.radio("Modalidad", ["Presencial", "Virtual"], key="nav_modality")
-    preserve_planning_widgets(modality if training == "Titulada" else None)
+    scope = modality if training == "Titulada" else "Complementaria " + modality
+    preserve_planning_widgets(scope)
+    st.session_state["_planning_scope"] = scope
     st.title(f"{training} · {modality.lower()}")
     if training == "Complementaria":
-        st.caption("Módulo pendiente de desarrollo.")
+        from ui.complementary_planning import render_complementary_planning
+        render_complementary_planning(base_path, modality)
         return
     st.session_state["_planning_scope"] = modality
     st.caption("Planeación independiente de Titulada " + modality.lower() + ".")

@@ -5,6 +5,7 @@ import streamlit as st
 from core.contracting_periods import contracting_headline, individual_contract_periods
 from core.curriculum_intakes import OFFER_COLUMNS
 from core.program_transitions import transition_rows
+from core.plant_workload import workload_capacity_rows
 
 
 def render_contracting_summary(execution):
@@ -24,6 +25,8 @@ def render_contracting_summary(execution):
         else:
             st.info("La planta cubre todas las horas de la vigencia; no se requieren contratistas.")
         st.caption("Las horas se toman de las competencias de la malla que cursa cada ficha en cada trimestre. Se descuenta únicamente la cobertura de planta.")
+        if execution.get("plant_workload_basis"):
+            st.caption(execution["plant_workload_basis"])
     if execution.get("plant_balance"):
         with st.expander("Descuento de horas de planta y saldo a contratar"):
             st.caption("Horas a contratar = horas requeridas − horas cubiertas por planta. "
@@ -31,7 +34,7 @@ def render_contracting_summary(execution):
                        "El saldo global resta toda esa capacidad; el saldo por perfil muestra las horas que quedan "
                        "al respetar las líneas compatibles y áreas docentes.")
             for field in ("plant_balance", "plant_balance_by_profile"):
-                frame = pd.DataFrame(execution[field])
+                frame = pd.DataFrame(workload_capacity_rows(execution, field))
                 st.dataframe(frame, hide_index=True, use_container_width=True,
                              column_config={name: st.column_config.NumberColumn(format="%.2f")
                                             for name in frame.columns if name.endswith("(h/sem)")})
@@ -117,8 +120,10 @@ def render_planning_details(execution, instructors, *, offer_editor=None):
     with st.expander("Horas mensuales de cada ficha"):
         st.dataframe(pd.DataFrame(execution["monthly_fichas"]), hide_index=True, use_container_width=True)
     with st.expander("Capacidad mensual por perfil e instructor"):
-        st.dataframe(pd.DataFrame(execution["monthly_staffing"]), hide_index=True, use_container_width=True)
-        st.dataframe(pd.DataFrame(execution["monthly_instructors"]), hide_index=True, use_container_width=True)
+        if execution.get("plant_workload_basis"):
+            st.caption(execution["plant_workload_basis"])
+        st.dataframe(pd.DataFrame(workload_capacity_rows(execution, "monthly_staffing")), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(execution.get("monthly_workload", execution["monthly_instructors"])), hide_index=True, use_container_width=True)
     with st.expander("Distribución de horas entre instructores y fichas"):
         st.dataframe(pd.DataFrame(execution["monthly_assignments"]), hide_index=True, use_container_width=True)
     with st.expander("Ofertas, metas y fichas activas por programa"):

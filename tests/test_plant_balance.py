@@ -71,4 +71,5 @@ def test_plant_balance_persists_and_is_exported(tmp_path):
     assert saved[1]["plant_balance"] == plan["plant_balance"]
     book = BytesIO(export_planning(*saved))
     for key, sheet in [("plant_balance", "Descuento de planta"), ("plant_balance_by_profile", "Planta por programa y perfil")]:
-        pd.testing.assert_frame_equal(pd.read_excel(book, sheet_name=sheet), pd.DataFrame(plan[key]), check_dtype=False)
+        expected = pd.DataFrame(plan[key]).rename(columns={"Horas libres de planta (h/sem)": "Otras actividades de planta (h/sem)"})
+        pd.testing.assert_frame_equal(pd.read_excel(book, sheet_name=sheet), expected, check_dtype=False)

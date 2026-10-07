@@ -127,7 +127,101 @@ def test_presencial_offer_edits_leave_virtual_untouched_and_survive_navigation(m
     assert not any("pendientes de ejecutar" in item.value for item in app.warning)
 
 
-def test_navigation_independent_parameters_and_empty_complementaria(module_args):
+def test_virtual_offer_edits_recalculate_and_persist_without_changing_presencial(module_args):
+    app = open_app(module_args)
+    save_presencial(app)
+    presencial = Path(module_args[0]).read_bytes()
+    app = ready_virtual(app)
+    button(app, "Ejecutar y guardar planeación").click().run()
+    path = planning_database(module_args[0], "Virtual")
+    original = load_planning(path)[1]
+    edit(app, "virtual:virtual_offers_editor_", rows={0: {"Oferta 1": 0, "Oferta 4": 9}})
+    assert load_planning(path)[1] == original  # El borrador no sustituye una ejecución.
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    changed = load_planning(path)[1]
+    assert changed["center"]["fichas_nuevas"] == 9
+    assert changed["summary"]["pico_contratistas_total"] == 3
+    assert changed["center"]["demanda_total_horas_anuales"] == 225
+    assert min(r["Inicio"] for r in changed["contracts"]) == "2027-10-01"
+    assert editor(app, "virtual:virtual_offers_editor_").value.iloc[0]["Total anual"] == 9
+    assert Path(module_args[0]).read_bytes() == presencial
+    app.radio(key="nav_modality").set_value("Presencial").run()
+    app.radio(key="nav_modality").set_value("Virtual").run()
+    assert not app.exception and not app.error
+    assert editor(app, "virtual:virtual_offers_editor_").value.iloc[0]["Oferta 4"] == 9
+    app.number_input(key="virtual:target_technologist").set_value(200).run()
+    button(app, "Ejecutar y guardar planeación").click().run()
+    assert load_planning(path)[1]["center"]["fichas_nuevas"] == 9
+    button(app, "Restaurar distribución automática").click().run()
+    assert not app.exception and not app.error
+    restored = load_planning(path)[1]
+    assert "manual_offers" not in restored
+    assert restored["center"]["fichas_nuevas"] == 8
+    assert restored["offers_by_program"][0]["Oferta 1"] == 8
+    assert Path(module_args[0]).read_bytes() == presencial
+
+
+def test_virtual_offer_save_failure_preserves_saved_execution(module_args, monkeypatch):
+    import sqlite3
+    import ui.virtual_schedule_planning as virtual_ui
+
+    app = ready_virtual(open_app(module_args))
+    button(app, "Ejecutar y guardar planeación").click().run()
+    path = planning_database(module_args[0], "Virtual")
+    original = load_planning(path)[1]
+    edit(app, "virtual:virtual_offers_editor_", rows={0: {"Oferta 1": 0, "Oferta 4": 9}})
+
+    def fail(*args):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(virtual_ui, "save_planning", fail)
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception
+    assert any("No fue posible guardar las ofertas" in r.value for r in app.error)
+    assert load_planning(path)[1] == original
+
+
+def test_full_plant_workday_visible_in_both_modules_and_recomputed_after_virtual_offers(module_args):
+    app = open_app(module_args)
+    save_presencial(app)
+    table = next(frame.value for frame in app.dataframe if "Otras actividades (h/mes)" in frame.value.columns)
+    plant = table[table["Tipo"] == "Planta"]
+    assert not plant.empty and (plant["Horas totales programadas (h/sem)"] == 32).all()
+    assert (plant["Horas sin programar (h/mes)"] == 0).all()
+    app = ready_virtual(app)
+    edit(app, "virtual:virtual_plant_", added=[{"Nombre completo": "Ana Pérez", "Cédula": "123",
+                                               "Tipo": "Técnico", "Perfil": "Software"}])
+    button(app, "Ejecutar y guardar planeación").click().run()
+    path = planning_database(module_args[0], "Virtual")
+    before = load_planning(path)[1]
+    edit(app, "virtual:virtual_offers_editor_", rows={0: {"Oferta 1": 0, "Oferta 4": 9}})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    after = load_planning(path)[1]
+    assert after["monthly_workload"] != before["monthly_workload"]
+    table = next(frame.value for frame in app.dataframe if "Otras actividades (h/mes)" in frame.value.columns)
+    plant = table[table["Vinculación"] == "Planta"]
+    assert len(plant) == 12 and (plant["Horas totales programadas (h/sem)"].round(8) == 32).all()
+    assert (plant["Horas sin programar (h/mes)"] == 0).all()
+    january = plant[plant["Mes"] == 1].iloc[0]
+    assert january["Horas de formación (h/mes)"] == 0
+    assert january["Otras actividades (h/mes)"] == january["Capacidad en horas"]
+
+
+def test_virtual_offers_new_year_uses_auto_instead_of_previous_manual_counts(module_args):
+    app = ready_virtual(open_app(module_args))
+    edit(app, "virtual:virtual_offers_editor_", rows={0: {"Oferta 1": 0, "Oferta 4": 9}})
+    button(app, "Guardar ofertas y recalcular").click().run()
+    assert not app.exception and not app.error
+    app.number_input(key="virtual:planning_year").set_value(2028).run()
+    assert editor(app, "virtual:virtual_offers_editor_").value.iloc[0]["Oferta 1"] == 4
+    button(app, "Ejecutar y guardar planeación").click().run()
+    saved = load_planning(planning_database(module_args[0], "Virtual"))[1]
+    assert saved["planning_year"] == 2028 and "manual_offers" not in saved
+
+
+def test_navigation_independent_parameters_and_complementaria(module_args):
     app = open_app(module_args)
     assert app.radio(key="nav_modality").value == "Presencial"
     app.number_input(key="target_technical").set_value(750)
@@ -141,9 +235,11 @@ def test_navigation_independent_parameters_and_empty_complementaria(module_args)
     assert not any("jornada" in label or "trimestre" in label or "diurna" in label or "mixta" in label for label in labels)
     app.number_input(key="virtual:target_technical").set_value(100).run()
     app.radio(key="nav_training").set_value("Complementaria").run()
-    assert not app.number_input and not app.button and not app.metric
+    assert app.number_input(key="complementaria:virtual:target_learners").value == 0
+    assert not app.exception
     app.radio(key="nav_modality").set_value("Presencial").run()
-    assert not app.number_input and not app.exception
+    assert app.number_input(key="complementaria:presencial:target_learners").value == 0
+    assert not app.exception
     assert not Path(module_args[0]).exists()
     assert not planning_database(module_args[0], "Virtual").exists()
     app.radio(key="nav_training").set_value("Titulada").run()
@@ -431,7 +527,8 @@ def test_daily_rate_migrates_saved_inputs_and_shows_technical_support_once(modul
     assert support.iloc[0]["Apoyo transversal (h/sem)"] == 25
     capacity = next(frame.value for frame in app.dataframe if "Horas técnicas asignadas" in frame.value.columns)
     assert not capacity.duplicated(["Mes", "Instructor"]).any()
-    assert (capacity["Horas asignadas"] <= capacity["Capacidad en horas"] + 1e-8).all()
+    assert (capacity["Horas de formación (h/mes)"] <= capacity["Capacidad en horas"] + 1e-8).all()
+    assert (capacity["Horas totales programadas (h/mes)"] <= capacity["Capacidad en horas"] + 1e-8).all()
     button(app, "Ejecutar y guardar planeación").click().run()
     staff, saved = load_planning(path)
     assert saved["rules"]["weekly_transversal_hours_per_ficha"] == 5

@@ -197,5 +197,7 @@ def execute_prepared_curriculum_plan(instructors, imported, catalog, rules, targ
     execution = apply_monthly_plan(execution, instructors, rules)
     if imported.get("input_mode") != "virtual_manual":
         from core.plant_balance import apply_plant_balance
+        from core.plant_workload import apply_plant_workload
         execution = apply_plant_balance(execution, rules)
+        execution = apply_plant_workload(execution)
     return apply_contracting_periods(execution, rules)

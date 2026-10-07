@@ -130,7 +130,7 @@ def _plant(catalog, rows):
     return counts, canonical, staff
 
 
-def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targets, year):
+def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targets, year, *, manual_offers=None):
     errors = rules.validate()
     if errors:
         raise ValueError(" ".join(errors))
@@ -213,10 +213,23 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
             for key, count in by_program.items():
                 slots[key, offer] = count
                 pending[key] -= count
-                if count:
-                    add_group(key, count, dates[offer], f"Oferta {offer + 1} · {available[key]['program']}", "Nueva")
         levels.append({"Nivel": level, "Meta de aprendices": targets[level], "Fichas que pasan": continuing,
                        "Fichas nuevas": new, "Cupos proyectados": (continuing + new) * rules.learners_per_ficha})
+    if manual_offers is not None:
+        from core.manual_virtual_offers import normalize_manual_offers
+        manual_offers, slots = normalize_manual_offers(manual_offers, selected, year)
+        quotas = {key: sum(slots[key, offer] for offer in range(4)) for key in selected}
+        for row in levels:
+            row["Fichas nuevas necesarias"] = row["Fichas nuevas"]
+            row["Fichas nuevas"] = sum(quotas[key] for key in selected if selected[key]["Nivel"] == row["Nivel"])
+            row["Cupos proyectados"] = (row["Fichas que pasan"] + row["Fichas nuevas"]) * rules.learners_per_ficha
+            row["Aprendices sin cobertura"] = max(0, row["Meta de aprendices"] - row["Cupos proyectados"])
+            row["Aprendices sobre la meta"] = max(0, row["Cupos proyectados"] - row["Meta de aprendices"])
+    for level in targets:
+        for offer in range(4):
+            for key in sorted(key for key in selected if selected[key]["Nivel"] == level):
+                if slots[key, offer]:
+                    add_group(key, slots[key, offer], dates[offer], f"Oferta {offer + 1} · {available[key]['program']}", "Nueva")
     timeline = []
     boundaries = {date(year, month, 1) for month in range(1, 13)} | {limit}
     for group in groups:
@@ -245,6 +258,8 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
         row["Fichas nuevas"] = sum(count for (key, offer), count in slots.items() if offer + 1 == row["Trimestre"])
     inputs = {"programs": canonical_programs, "cohorts": canonical_cohorts, "plant": canonical_plant,
               "offers": [value.isoformat() for value in dates]}
+    if manual_offers is not None:
+        inputs["manual_offers"] = manual_offers
     execution = {"planning_mode": "virtual_schedule_v3", "workload_scope": "lectiva", "input_mode": "virtual_manual",
                  "workload_model": WORKLOAD_MODEL,
                  "training_type": "Titulada", "modality": "Virtual", "planning_year": year,
@@ -277,7 +292,7 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                      "La planta cubre primero su perfil. Se resuelve la carga técnica y luego sus horas disponibles, de planta y de contratistas ya requeridos, "
                      "pueden cubrir atenciones completas de transversal general en ese mismo intervalo. El saldo requiere contratistas transversales. "
                      "Un apoyo no crea otra persona ni duplica su capacidad, y no prolonga contratos técnicos fuera de su necesidad técnica. "
-                     "Las horas libres insuficientes para una atención completa se muestran como disponibles, sin sumarlas entre personas. "
+                     "Las horas insuficientes para una atención completa no se suman entre personas; en planta completan otras actividades. "
                      "Un técnico atiende su programa y puede apoyar transversal general; un transversal comparte las competencias "
                      "asignadas al mismo perfil docente entre programas. El centro definió un perfil transversal general para todos los temas "
                      "excepto bilingüismo y cultura física, que tienen perfiles exclusivos. Se reconocen por sus códigos de competencia "
@@ -287,4 +302,13 @@ def execute_virtual_schedule_plan(catalog, programs, cohorts, plant, rules, targ
                      "Los picos se calculan en cada cambio de fase y las fechas de contrato indican los intervalos de necesidad dentro de la vigencia. "
                      "La etapa productiva y antiguas horas manuales por actividad no intervienen en el cálculo."
                  )}
-    return staff, execution
+    if manual_offers is not None:
+        from core.manual_virtual_offers import MANUAL_BASIS
+        execution["manual_offers"] = manual_offers
+        execution["calculation_basis"] = MANUAL_BASIS + " " + execution["calculation_basis"].replace(
+            "determina las nuevas.", "determina las nuevas del reparto automático de referencia.")
+        execution["center"].update(aprendices_proyectados=sum(row["Cupos proyectados"] for row in levels),
+            aprendices_sin_cobertura=sum(row["Aprendices sin cobertura"] for row in levels),
+            aprendices_sobre_meta=sum(row["Aprendices sobre la meta"] for row in levels))
+    from core.plant_workload import apply_plant_workload
+    return staff, apply_plant_workload(execution, virtual=True)

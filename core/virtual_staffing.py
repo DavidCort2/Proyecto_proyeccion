@@ -29,7 +29,7 @@ def build_staffing(timeline, boundaries, plant, rules, year):
                             "Cédula": person["Cédula"], "Vinculación": "Planta"})
     for rows in people.values():
         rows.sort(key=lambda row: row["Cédula"])
-    periods, staffing, technical_support = [], [], []
+    periods, staffing, technical_support, instructor_intervals = [], [], [], []
     spans = defaultdict(list)
     ficha_months, instructor_months, assignments = {}, {}, {}
     previous = {}
@@ -57,6 +57,13 @@ def build_staffing(timeline, boundaries, plant, rules, year):
         for identifier, person in roster.items():
             home = person["home_key"]
             assigned = allocated[identifier]
+            if days:
+                instructor_intervals.append({
+                    "Instructor": identifier, "Nombre": person["Nombre"], "Cédula": person["Cédula"],
+                    "Vinculación": person["Vinculación"], "Tipo": home[0], "Perfil": labels[home],
+                    "Inicio": start.isoformat(), "Fin": (end - DAY).isoformat(),
+                    "Capacidad (h/sem)": person["capacity"], "Formación (h/sem)": person["used"],
+                    "Disponible (h/sem)": max(0.0, person["capacity"] - person["used"])})
             previous[identifier] = set(assigned)
             supporting = [(key, unit) for key, unit in assigned if key != home]
             instructor = instructor_months.setdefault((start.month, identifier), {
@@ -190,6 +197,7 @@ def build_staffing(timeline, boundaries, plant, rules, year):
     return {"periods": periods, "staffing": staffing, "contracts": contracts, "monthly": monthly, "quarterly": quarterly,
             "monthly_fichas": list(ficha_months.values()), "monthly_instructors": list(instructor_months.values()),
             "monthly_assignments": list(assignments.values()), "technical_support": technical_support,
+            "instructor_intervals": instructor_intervals,
             "summary": {"pico_contratistas_total": peak["Contratistas requeridos"], "tecnicos_en_pico": peak["Contratistas técnicos"],
                         "transversales_en_pico": peak["Contratistas transversales"], "inicio_pico": peak["Inicio"], "fin_pico": peak["Fin"],
                         "trimestre_pico": peak["Trimestre"]}}
